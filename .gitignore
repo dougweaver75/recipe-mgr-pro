@@ -1,0 +1,139 @@
+# Recipe Manager Pro - .gitignore
+
+# ============================================
+# Dependencies
+# ============================================
+node_modules/
+package-lock.json
+
+# ============================================
+# Capacitor Build Files (Generated)
+# ============================================
+android/
+ios/
+.capacitor/
+
+# ============================================
+# Build Outputs & Generated Files
+# ============================================
+dist/
+build/
+
+# www folder is your webDir, so keep it
+# but exclude android build artifacts if any
+www/android/
+www/ios/
+
+# ============================================
+# Backup Files (Don't commit backups)
+# ============================================
+*.backup
+*.bak
+*.old
+app.js.backup
+recipes.json.backup
+
+# ============================================
+# PHP Files (No longer needed for Android)
+# ============================================
+# These were only for local XAMPP testing
+load_recipes.php
+save_recipes.php
+test_permissions.php
+
+# ============================================
+# Old Files Folder
+# ============================================
+old files/
+old_files/
+
+# ============================================
+# Environment & Secrets
+# ============================================
+.env
+.env.local
+.env.production
+*.key
+*.pem
+
+# ============================================
+# IDE & Editor Files
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# ============================================
+# Operating System Files
+# ============================================
+.DS_Store
+Thumbs.db
+desktop.ini
+*.lnk
+
+# ============================================
+# Logs & Debug Files
+# ============================================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log.*
+
+# ============================================
+# Temporary Files
+# ============================================
+*.tmp
+*.temp
+*~
+.cache/
+
+# ============================================
+# Archives
+# ============================================
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# ============================================
+# Images Folder (Optional)
+# ============================================
+# Your images are in www/images/ 
+# If the folder is too large (100+ MB), uncomment:
+# www/images/
+# But maybe keep a few samples for testing:
+# !www/images/sample*.jpg
+
+# ============================================
+# Python API (if you add it to the repo)
+# ============================================
+api/__pycache__/
+api/*.pyc
+api/.pytest_cache/
+api/venv/
+api/.env
+
+# ============================================
+# Testing
+# ============================================
+coverage/
+.nyc_output/
+*.test.js.snap
+
+# ============================================
+# Documentation Builds
+# ============================================
+docs/_build/
+site/
+
+# ============================================
+# XAMPP Specific (Not needed for production)
+# ============================================
+# Already excluded PHP files above
