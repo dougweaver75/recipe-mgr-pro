@@ -35,7 +35,8 @@ class RecipeManager {
         this.courseTypes = ["Breakfast", "Lunch", "Dinner", "Snack", "Dessert", "Appetizer", "Side Dish", "Beverage", "Marinade", "Sauce", "Spices"];
         this.categoryTypes = ["Chicken", "Beef", "Pork", "Fish", "Vegetarian", "Pasta", "Soup", "Salad", "Pizza", "Sandwich", "Casserole"];
         
-        this.init();
+        //this.init();
+		this.initRedesign();
     }
 
     init() {
@@ -43,105 +44,373 @@ class RecipeManager {
         this.setupTabs();
         this.loadRecipesFromServer();
     }
-
-    
-loadRecipesFromServer() {
-    // Try to load from localStorage first
-    const stored = localStorage.getItem('recipes');
-    
-    if (stored) {
-        // We have saved recipes in localStorage
-        try {
-            this.recipes = JSON.parse(stored);
-            if (this.recipes.length > 0) {
-                const maxId = Math.max(...this.recipes.map(r => r.id || 0));
-                this.currentRecipeId = maxId + 1;
-            }
-            this.renderRecipes();
-            this.updateRecipeCount();
-            this.populateFilters();
-            console.log('Loaded recipes from localStorage:', this.recipes.length);
-        } catch (e) {
-            console.error('Error parsing stored recipes:', e);
-            // If localStorage is corrupted, fall back to JSON file
-            this.loadFromJsonFile();
-        }
-    } else {
-        // First time - load from recipes.json file
-        console.log('No stored recipes, loading from recipes.json');
-        this.loadFromJsonFile();
+	
+    initRedesign() {
+        this.initTheme();
+        this.initBottomNav();
+        this.initSearch();
+        this.initAddTabs();
+        this.renderCategoryGrid();
+		this.initServingsControls();
+		this.initModalActions();
+		this.loadRecipesFromServer();
+		this.initImportHandlers();
     }
+	
+initImportHandlers() {
+    console.log('=== initImportHandlers called ===');
+
+    // URL scraping
+    const scrapeBtn = document.getElementById('scrapeUrl');
+    if (scrapeBtn) {
+        scrapeBtn.addEventListener('click', () => {
+            console.log('Scrape button clicked!');
+            this.scrapeRecipeFromUrl();
+        });
+        console.log('scrapeUrl listener attached');
+    }
+
+    // File upload
+    const fileUploadArea = document.getElementById('fileUploadArea');
+    const fileInput = document.getElementById('fileInput');
+
+    if (fileUploadArea && fileInput) {
+        fileUploadArea.addEventListener('click', () => fileInput.click());
+        fileUploadArea.addEventListener('dragover', (e) => this.handleDragOver(e));
+        fileUploadArea.addEventListener('drop', (e) => this.handleFileDrop(e));
+        fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
+    }
+
+    // Import confirmation (only if elements exist)
+    const confirmBtn = document.getElementById('confirmImport');
+    const cancelBtn = document.getElementById('cancelImport');
+    if (confirmBtn) confirmBtn.addEventListener('click', () => this.confirmImport());
+    if (cancelBtn) cancelBtn.addEventListener('click', () => this.cancelImport());
+
+    console.log('=== initImportHandlers complete ===');
 }
 
-// Helper function to load from the JSON file
-loadFromJsonFile() {
-    fetch('recipes.json')
-        .then(res => res.json())
-        .then(data => {
-            this.recipes = Array.isArray(data) ? data : [];
-            if (this.recipes.length > 0) {
-                const maxId = Math.max(...this.recipes.map(r => r.id || 0));
-                this.currentRecipeId = maxId + 1;
-            }
-            // Save to localStorage for future use
-            this.saveRecipesToServer();
-            this.renderRecipes();
-            this.updateRecipeCount();
-            this.populateFilters();
-            console.log('Loaded recipes from JSON file:', this.recipes.length);
-        })
-        .catch(err => {
-            console.error('Error loading recipes:', err);
-            this.recipes = [];
-            this.renderRecipes();
-            this.updateRecipeCount();
-            this.populateFilters();
+    initTheme() {
+        const themeToggle = document.getElementById('themeToggle');
+        const html = document.documentElement;
+
+        const currentTheme = localStorage.getItem('theme') || 'light';
+        html.setAttribute('data-theme', currentTheme);
+        this.updateThemeIcon(currentTheme);
+
+        themeToggle.addEventListener('click', () => {
+            const theme = html.getAttribute('data-theme');
+            const newTheme = theme === 'light' ? 'dark' : 'light';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            this.updateThemeIcon(newTheme);
         });
-}
+    }
+
+    updateThemeIcon(theme) {
+        const sunIcon = document.getElementById('sunIcon');
+        const moonIcon = document.getElementById('moonIcon');
+
+        if (theme === 'dark') {
+            sunIcon.style.display = 'none';
+            moonIcon.style.display = 'block';
+        } else {
+            sunIcon.style.display = 'block';
+            moonIcon.style.display = 'none';
+        }
+    }
+	
+	initModalActions() {
+		// Edit button
+		document.getElementById('editRecipeBtn').addEventListener('click', () => {
+			const recipeId = document.getElementById('modalRecipeTitle').dataset.recipeId;
+			this.editRecipe(parseInt(recipeId));
+		});
+		
+		// Delete button
+		document.getElementById('deleteRecipeBtn').addEventListener('click', () => {
+			const recipeId = document.getElementById('modalRecipeTitle').dataset.recipeId;
+			if (confirm('Are you sure you want to delete this recipe?')) {
+				this.deleteRecipe(parseInt(recipeId));
+				document.getElementById('recipeModal').classList.remove('active');
+			}
+		});
+		
+		// Modal back button
+		document.getElementById('modalBackBtn').addEventListener('click', () => {
+			document.getElementById('recipeModal').classList.remove('active');
+		});
+		
+		// Edit modal close button (the × button)
+		document.querySelectorAll('[data-modal="editModal"]').forEach(btn => {
+			btn.addEventListener('click', () => {
+				document.getElementById('editModal').classList.remove('active');
+			});
+		});
+        
+        const shareBtn = document.getElementById('shareRecipeBtn');
+        console.log('Share button found:', shareBtn);
+
+        if (shareBtn) {
+            shareBtn.addEventListener('click', () => {
+                console.log('Share button clicked!');
+                const recipeId = document.getElementById('modalRecipeTitle').dataset.recipeId;
+                console.log('Recipe ID:', recipeId);
+                this.currentShareRecipeId = parseInt(recipeId);
+                this.showShareModal();
+            });
+        } else {
+            console.error('Share button not found!');
+        }   
+	}	
+
+    initBottomNav() {
+        const navItems = document.querySelectorAll('.nav-item');
+
+        navItems.forEach(item => {
+            item.addEventListener('click', () => {
+                const targetView = item.dataset.view;
+
+                navItems.forEach(nav => nav.classList.remove('active'));
+                item.classList.add('active');
+
+                document.querySelectorAll('.view').forEach(view => {
+                    view.classList.remove('active');
+                });
+
+                document.getElementById(targetView).classList.add('active');
+
+                if (targetView === 'homeView') {
+                    this.renderCategoryGrid();
+                }
+
+                if (targetView === 'recipesView') {
+                    this.renderRecipes();
+                }
+            });
+        });
+    }
+
+    initSearch() {
+        const searchBtn = document.getElementById('searchBtn');
+        const searchOverlay = document.getElementById('searchOverlay');
+        const searchBackBtn = document.getElementById('searchBackBtn');
+        const searchClearBtn = document.getElementById('searchClearBtn');
+        const searchInput = document.getElementById('searchInput');
+
+        searchBtn.addEventListener('click', () => {
+            searchOverlay.classList.add('active');
+            searchInput.focus();
+        });
+
+        searchBackBtn.addEventListener('click', () => {
+            searchOverlay.classList.remove('active');
+            searchInput.value = '';
+            document.getElementById('searchResults').innerHTML = '';
+        });
+
+        searchClearBtn.addEventListener('click', () => {
+            searchInput.value = '';
+            document.getElementById('searchResults').innerHTML = '';
+            searchInput.focus();
+        });
+
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+
+            if (!query) {
+                document.getElementById('searchResults').innerHTML = '';
+                return;
+            }
+
+            const filtered = this.recipes.filter(recipe => {
+                return recipe.title.toLowerCase().includes(query) ||
+                       recipe.ingredients.some(ing => ing.ingredient.toLowerCase().includes(query)) ||
+                       recipe.category.toLowerCase().includes(query) ||
+                       recipe.course.toLowerCase().includes(query);
+            });
+
+            this.renderSearchResults(filtered);
+        });
+    }
+
+    renderSearchResults(recipes) {
+        const searchResults = document.getElementById('searchResults');
+
+        if (recipes.length === 0) {
+            searchResults.innerHTML = '<p style="padding: 2rem; text-align: center; color: var(--text-secondary);">No recipes found</p>';
+            return;
+        }
+
+        searchResults.innerHTML = recipes.map(recipe => `
+            <div class="search-result-item" onclick="recipeManager.openRecipeModal(${recipe.id})">
+                <div style="font-weight: 600; margin-bottom: 0.25rem;">${recipe.title}</div>
+                <div style="font-size: 0.875rem; color: var(--text-secondary);">
+                    ${recipe.course} • ${recipe.category}
+                </div>
+            </div>
+        `).join('');
+    }
+
+	renderCategoryGrid() {
+		const categoryGrid = document.getElementById('categoryGrid');
+		
+		const categoryMap = new Map();
+		
+		this.recipes.forEach(recipe => {
+			// Use "Uncategorized" for missing/empty categories
+			const category = recipe.category && recipe.category.trim() !== '' 
+				? recipe.category 
+				: 'Uncategorized';
+			
+			if (!categoryMap.has(category)) {
+				categoryMap.set(category, {
+					name: category,
+					count: 0,
+					recipes: []
+				});
+			}
+			const cat = categoryMap.get(category);
+			cat.count++;
+			cat.recipes.push(recipe);
+		});
+		
+		const categories = Array.from(categoryMap.values()).sort((a, b) => {
+			// Keep "Uncategorized" at the end
+			if (a.name === 'Uncategorized') return 1;
+			if (b.name === 'Uncategorized') return -1;
+			return a.name.localeCompare(b.name);
+		});
+		
+		categoryGrid.innerHTML = categories.map(category => {
+			// Try to find a recipe with an image
+			let recipeWithImage = category.recipes.find(r => r.images && r.images.length > 0);
+			
+			// If none found, just pick first recipe
+			if (!recipeWithImage) {
+				recipeWithImage = category.recipes[0];
+			}
+			
+			const imageUrl = recipeWithImage && recipeWithImage.images && recipeWithImage.images.length > 0 
+				? recipeWithImage.images[0] 
+				: '';
+			
+			// Use different emoji for Uncategorized
+			const placeholder = category.name === 'Uncategorized' ? '❓' : '🍽️';
+			
+			return `
+				<div class="category-card" onclick="recipeManager.filterByCategory('${category.name}')">
+					${imageUrl ? 
+						`<img src="${imageUrl}" alt="${category.name}" class="category-image" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+						 <div class="category-no-image" style="display: none;">${placeholder}</div>` :
+						`<div class="category-no-image">${placeholder}</div>`
+					}
+					<div class="category-info">
+						<div class="category-name">${category.name}</div>
+						<div class="category-count">
+							<span class="count-number">${category.count}</span> 
+							${category.count === 1 ? 'recipe' : 'recipes'}
+						</div>
+					</div>
+				</div>
+			`;
+		}).join('');
+	}
+
+    filterByCategory(categoryName) {
+        document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+        document.getElementById('recipesView').classList.add('active');
+
+        document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+        document.querySelector('.nav-item[data-view="recipesView"]').classList.add('active');
+
+        const categoryFilter = document.getElementById('categoryFilter');
+        categoryFilter.value = categoryName;
+
+        this.filterRecipes();
+
+        document.getElementById('searchOverlay').classList.remove('active');
+    }
+
+    initAddTabs() {
+        const addTabBtns = document.querySelectorAll('.add-tab-btn');
+
+        addTabBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const targetTab = btn.dataset.addTab;
+
+                addTabBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                document.querySelectorAll('.add-tab-content').forEach(content => {
+                    content.classList.remove('active');
+                });
+
+                document.getElementById(targetTab + 'Tab').classList.add('active');
+            });
+        });
+    }	
+
+	loadRecipesFromServer() {
+		// Try localStorage first (for mobile app)
+		const stored = localStorage.getItem('recipes');
+		
+		if (stored) {
+			try {
+				this.recipes = JSON.parse(stored);
+				console.log('Loaded recipes from localStorage:', this.recipes.length);
+				
+				// CRITICAL FIX: Set currentRecipeId to be higher than any existing ID
+				if (this.recipes.length > 0) {
+					const maxId = Math.max(...this.recipes.map(r => r.id));
+					this.currentRecipeId = maxId + 1;
+					console.log('Set currentRecipeId to:', this.currentRecipeId);
+				}				
+				
+				this.renderRecipes();
+				this.updateRecipeCount();
+				this.populateFilters();
+				this.renderCategoryGrid(); // ← Make sure this is here
+			} catch (e) {
+				console.error('Error parsing stored recipes:', e);
+				this.loadFromJsonFile();
+			}
+		} else {
+			console.log('No localStorage, loading from JSON file');
+			this.loadFromJsonFile();
+		}
+	}
+
+	loadFromJsonFile() {
+		fetch('recipes.json')
+			.then(res => res.json())
+			.then(data => {
+				console.log('Loaded recipes from JSON:', data.length);
+				this.recipes = data;
+
+				// CRITICAL FIX: Set currentRecipeId to be higher than any existing ID
+				if (this.recipes.length > 0) {
+					const maxId = Math.max(...this.recipes.map(r => r.id));
+					this.currentRecipeId = maxId + 1;
+					console.log('Set currentRecipeId to:', this.currentRecipeId);
+				}				
+				
+				localStorage.setItem('recipes', JSON.stringify(data)); // ← Save to localStorage
+				this.renderRecipes();
+				this.updateRecipeCount();
+				this.populateFilters();
+				this.renderCategoryGrid();
+			})
+			.catch(err => {
+				console.error('Failed to load recipes:', err);
+			});
+	}
 
 saveRecipesToServer() {
-    // Save to localStorage instead of PHP
-    try {
-        localStorage.setItem('recipes', JSON.stringify(this.recipes));
-        console.log('Recipes saved to localStorage:', this.recipes.length);
-    } catch (e) {
-        console.error('Error saving recipes:', e);
-        // If localStorage is full or unavailable
-        if (e.name === 'QuotaExceededError') {
-            alert('Storage is full! Cannot save recipes.');
-        }
-    }
-}	
-	
-	
-	/*loadRecipesFromServer() {
-        fetch('recipes.json')
-            .then(res => res.json())
-            .then(data => {
-                this.recipes = Array.isArray(data) ? data : [];
-                if (this.recipes.length > 0) {
-                    const maxId = Math.max(...this.recipes.map(r => r.id || 0));
-                    this.currentRecipeId = maxId + 1;
-                }
-                this.renderRecipes();
-                this.updateRecipeCount();
-                this.populateFilters();
-            })
-            .catch(() => {
-                this.recipes = [];
-                this.renderRecipes();
-                this.updateRecipeCount();
-                this.populateFilters();
-            });
-    }
-
-    saveRecipesToServer() {
-        fetch('save_recipes.php', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(this.recipes)
-        });
-    }*/
+    // For mobile app, just save to localStorage
+    localStorage.setItem('recipes', JSON.stringify(this.recipes));
+    console.log('Recipes saved to localStorage');
+}
 
     setupEventListeners() {
         document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -186,6 +455,11 @@ saveRecipesToServer() {
         document.getElementById('decreaseServings').addEventListener('click', () => this.adjustServings(-1));
         document.getElementById('increaseServings').addEventListener('click', () => this.adjustServings(1));
         document.getElementById('currentServings').addEventListener('input', (e) => this.setServings(parseInt(e.target.value)));
+		
+		// Add this somewhere in your initialization
+		document.getElementById('modalBackBtn').addEventListener('click', () => {
+			document.getElementById('recipeModal').classList.remove('active');
+		});		
 
         document.querySelectorAll('.modal').forEach(modal => {
             modal.addEventListener('click', (e) => {
@@ -207,13 +481,34 @@ saveRecipesToServer() {
         document.getElementById(tabName).classList.add('active');
     }
 
-    switchAddTab(tabName) {
-        document.querySelectorAll('.add-tab-btn').forEach(btn => btn.classList.remove('active'));
-        document.querySelectorAll('.add-tab-content').forEach(content => content.classList.remove('active'));
-        
-        document.querySelector(`[data-add-tab="${tabName}"]`).classList.add('active');
-        document.getElementById(tabName).classList.add('active');
+switchTab(tabName) {
+    // Old tab system - check if elements exist first
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    if (tabButtons.length > 0) {
+        // Old system exists, use it
+        tabButtons.forEach(btn => btn.classList.remove('active'));
+        tabContents.forEach(content => content.classList.remove('active'));
+
+        const targetBtn = document.querySelector(`[data-tab="${tabName}"]`);
+        const targetContent = document.getElementById(tabName);
+
+        if (targetBtn) targetBtn.classList.add('active');
+        if (targetContent) targetContent.classList.add('active');
+    } else {
+        // New system - switch to recipes view if trying to go to library
+        if (tabName === 'library') {
+            // Activate recipes view instead
+            document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+            document.getElementById('recipesView').classList.add('active');
+
+            document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+            const recipesNavItem = document.querySelector('.nav-item[data-view="recipesView"]');
+            if (recipesNavItem) recipesNavItem.classList.add('active');
+        }
     }
+}
 
     addIngredientRow() {
         const ingredientsList = document.getElementById('ingredientsList');
@@ -305,80 +600,109 @@ saveRecipesToServer() {
         this.switchTab('library');
     }
 
-async scrapeRecipeFromUrl() {
-    const url = document.getElementById('recipeUrl').value.trim();
-    const statusEl = document.getElementById('urlStatus');
-    
-    if (!url) {
-        this.showStatus('Please enter a URL', 'error', statusEl);
-        return;
-    }
+	async scrapeRecipeFromUrl() {
+		const url = document.getElementById('recipeUrl').value.trim();
+		const statusEl = document.getElementById('urlStatus');
+		
+		console.log('scrapeRecipeFromUrl called, URL:', url);
+		
+		if (!url) {
+			this.showStatus('Please enter a URL', 'error', statusEl);
+			console.log('No URL provided, exiting');
+			return;
+		}
 
-    this.showStatus('Extracting recipe data...', 'info', statusEl);
-    
-    try {
-        // YOUR CLOUD RUN URL HERE - replace with your actual URL
-        const apiUrl = 'https://recipe-scraper-45718618018.us-central1.run.app/scrape';
-        
-        const response = await fetch(`${apiUrl}?url=${encodeURIComponent(url)}`);
-        const data = await response.json();
-        
-        if (!data.success) {
-            throw new Error(data.message || 'Failed to scrape recipe');
-        }
-        
-        // Parse ingredients (recipe-scrapers returns them as strings)
-        const parsedIngredients = data.ingredients.map(ing => {
-            // Try to parse "2 cups flour" format
-            const match = ing.match(/^([\d.\/\s]+)\s*(\w+)\s+(.+)$/);
-            if (match) {
-                return {
-                    quantity: parseFloat(match[1]),
-                    unit: match[2],
-                    ingredient: match[3]
-                };
-            }
-            // Fallback: just use the string as-is
-            return {
-                quantity: 1,
-                unit: '',
-                ingredient: ing
-            };
-        });
-        
-        const newRecipe = {
-            id: this.currentRecipeId++,
-            title: data.title,
-            course: 'Dinner',
-            category: data.category || 'Main Course',
-            collections: ['URL Import'],
-            source: url,
-            servings: parseInt(data.servings) || 4,
-            prepTime: data.prep_time ? `PT${data.prep_time}M` : 'PT0S',
-            cookTime: data.cook_time ? `PT${data.cook_time}M` : 'PT0S',
-            ingredients: parsedIngredients,
-            instructions: Array.isArray(data.instructions_list) ? data.instructions_list : [data.instructions],
-            notes: `Imported from: ${data.host}`,
-            nutrition: data.nutrients || {},
-            images: data.image ? [data.image] : []
-        };
-        
-        this.recipes.push(newRecipe);
-        this.saveRecipesToServer();
-        this.renderRecipes();
-        this.updateRecipeCount();
-        this.populateFilters();
-        
-        this.showStatus('Recipe imported successfully!', 'success', statusEl);
-        document.getElementById('recipeUrl').value = '';
-        
-        setTimeout(() => this.switchTab('library'), 1500);
-        
-    } catch (error) {
-        console.error('Scrape error:', error);
-        this.showStatus('Failed to import recipe: ' + error.message, 'error', statusEl);
-    }
-}
+		this.showStatus('Extracting recipe data...', 'info', statusEl);
+		console.log('Calling Cloud Run API...');
+		
+		try {
+			// YOUR CLOUD RUN URL
+			const apiUrl = 'https://recipe-scraper-45718618018.us-central1.run.app/scrape';
+			
+			const response = await fetch(`${apiUrl}?url=${encodeURIComponent(url)}`);
+			const data = await response.json();
+			
+			console.log('API response:', JSON.stringify(data, null, 2));
+			console.log('Recipe title from API:', data.title);
+			console.log('Recipe success flag:', data.success);
+			
+			if (!data.success) {
+				throw new Error(data.message || 'Failed to scrape recipe');
+			}
+			
+			// Parse ingredients (recipe-scrapers returns them as strings)
+			const parsedIngredients = data.ingredients.map(ing => {
+				// Try to parse "2 cups flour" format
+				const match = ing.match(/^([\d.\/\s]+)\s+(\w+)\s+(.+)$/);
+				if (match) {
+					return {
+						quantity: parseFloat(match[1].trim()),
+						unit: match[2],
+						ingredient: match[3]
+					};
+				}
+				// Fallback: just use the string as-is
+				return {
+					quantity: 1,
+					unit: '',
+					ingredient: ing
+				};
+			});
+			
+			const newRecipe = {
+				id: this.currentRecipeId++,
+				title: data.title,
+				course: 'Dinner', // Default, user can edit later
+				category: data.category || 'Main Course',
+				collections: ['URL Import'],
+				source: url,
+				servings: parseInt(data.servings) || 4,
+				prepTime: data.prep_time || 'Not specified',
+				cookTime: data.cook_time || 'Not specified',
+				ingredients: parsedIngredients,
+				instructions: data.instructions_list || [],
+				notes: data.description || '',
+				nutrition: {},
+				images: data.image ? [data.image] : []
+			};
+			
+			console.log('Created recipe from API data:', JSON.stringify(newRecipe, null, 2));
+			
+			this.recipes.push(newRecipe);
+			this.saveRecipesToServer();
+			this.renderRecipes();
+			this.updateRecipeCount();
+			this.populateFilters();
+			
+			this.showStatus('Recipe imported successfully!', 'success', statusEl);
+			document.getElementById('recipeUrl').value = '';
+			
+			setTimeout(() => {
+				console.log('Switching to recipes view...');
+				// Switch to recipes view
+				document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+				document.getElementById('recipesView').classList.add('active');
+				
+				document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+				const recipesNav = document.querySelector('.nav-item[data-view="recipesView"]');
+				if (recipesNav) recipesNav.classList.add('active');
+				
+				// Reset filters
+				const courseFilter = document.getElementById('courseFilter');
+				const categoryFilter = document.getElementById('categoryFilter');
+				if (courseFilter) courseFilter.value = '';
+				if (categoryFilter) categoryFilter.value = '';
+				
+				this.renderRecipes();
+				this.renderCategoryGrid();
+				console.log('View switched to recipes, filters reset');
+			}, 500);
+			
+		} catch (error) {
+			console.error('Scraping error:', error);
+			this.showStatus('Failed to import recipe: ' + error.message, 'error', statusEl);
+		}
+	}
 
     handleDragOver(e) {
         e.preventDefault();
@@ -406,8 +730,10 @@ async scrapeRecipeFromUrl() {
         const statusEl = document.getElementById('fileStatus');
         const fileName = file.name.toLowerCase();
         
-        if (!fileName.endsWith('.txt') && !fileName.endsWith('.html') && !fileName.endsWith('.htm')) {
-            this.showStatus('Please select a .txt or .html file', 'error', statusEl);
+        console.log('Processing file:', fileName);
+        
+        if (!fileName.endsWith('.txt') && !fileName.endsWith('.html') && !fileName.endsWith('.htm') && !fileName.endsWith('.json')) {
+            this.showStatus('Please select a .txt, .html, or .json file', 'error', statusEl);
             return;
         }
 
@@ -419,7 +745,11 @@ async scrapeRecipeFromUrl() {
             setTimeout(() => {
                 try {
                     let recipes;
-                    if (fileName.endsWith('.html') || fileName.endsWith('.htm')) {
+                    if (fileName.endsWith('.json')) {
+                        this.updateProgress(50, 'Parsing JSON format...');
+                        recipes = this.parseRecipeJSON(e.target.result);
+                        console.log('Parsed JSON recipes:', recipes);
+                    } else if (fileName.endsWith('.html') || fileName.endsWith('.htm')) {
                         this.updateProgress(50, 'Parsing HTML format...');
                         recipes = this.parseRecipeManagerHTML(e.target.result);
                     } else {
@@ -427,22 +757,50 @@ async scrapeRecipeFromUrl() {
                         recipes = this.parseRecipeManagerFile(e.target.result);
                     }
                     
-                    this.updateProgress(75, 'Processing recipes...');
+                    console.log('Total recipes parsed:', recipes.length);
                     
+                    this.updateProgress(75, 'Importing recipes...');
+                    
+                    // Assign IDs and import directly
                     recipes.forEach(recipe => {
                         recipe.id = this.currentRecipeId++;
+                        console.log('Importing recipe:', recipe.title);
                     });
                     
-                    this.pendingImportRecipes = recipes;
+                    // Import directly without preview
+                    this.recipes.push(...recipes);
+                    this.saveRecipesToServer();
+                    this.renderRecipes();
+                    this.updateRecipeCount();
+                    this.populateFilters();
+                    
                     this.updateProgress(100, 'Complete!');
                     
                     setTimeout(() => {
                         this.showProgress(false);
-                        this.showImportPreview(recipes);
-                        this.showStatus(`Found ${recipes.length} recipe(s) ready to import`, 'success', statusEl);
+                        this.showStatus(`Successfully imported ${recipes.length} recipe(s)!`, 'success', statusEl);
+                        
+                        // Switch to recipes view
+                        setTimeout(() => {
+                            document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+                            document.getElementById('recipesView').classList.add('active');
+                            
+                            document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+                            const recipesNav = document.querySelector('.nav-item[data-view="recipesView"]');
+                            if (recipesNav) recipesNav.classList.add('active');
+                            
+                            // Reset filters so imported recipe shows
+                            const courseFilter = document.getElementById('courseFilter');
+                            const categoryFilter = document.getElementById('categoryFilter');
+                            if (courseFilter) courseFilter.value = '';
+                            if (categoryFilter) categoryFilter.value = '';
+                            
+                            this.renderRecipes();
+                        }, 500);
                     }, 500);
                     
                 } catch (error) {
+                    console.error('File parsing error:', error);
                     this.showProgress(false);
                     this.showStatus('Error parsing file: ' + error.message, 'error', statusEl);
                 }
@@ -485,6 +843,100 @@ async scrapeRecipeFromUrl() {
         });
         
         return recipes;
+    }
+
+    parseRecipeJSON(jsonContent) {
+        const data = JSON.parse(jsonContent);
+        
+        // Handle both single recipe object and array of recipes
+        const recipes = Array.isArray(data) ? data : [data];
+        
+        // Validate and normalize each recipe
+        return recipes.map(recipe => {
+            // Determine if this is Schema.org format or simple format
+            const isSchemaOrg = recipe['@type'] === 'Recipe';
+            
+            // Extract title
+            const title = recipe.title || recipe.name;
+            if (!title) {
+                throw new Error('Recipe missing title/name');
+            }
+            
+            // Extract ingredients
+            let ingredients = [];
+            if (isSchemaOrg && recipe.recipeIngredient) {
+                // Schema.org format: array of strings
+                ingredients = recipe.recipeIngredient.map(ing => {
+                    // Try to parse "1 cup flour" format
+                    const match = ing.match(/^([\d.\/\s]+)\s+(\w+)\s+(.+)$/);
+                    if (match) {
+                        return {
+                            quantity: parseFloat(match[1].trim()) || 1,
+                            unit: match[2],
+                            ingredient: match[3]
+                        };
+                    }
+                    return {
+                        quantity: 1,
+                        unit: '',
+                        ingredient: ing
+                    };
+                });
+            } else if (Array.isArray(recipe.ingredients)) {
+                // Simple format: already structured
+                ingredients = recipe.ingredients;
+            }
+            
+            // Extract instructions
+            let instructions = [];
+            if (isSchemaOrg && recipe.recipeInstructions) {
+                // Schema.org format: array of objects with text property
+                instructions = recipe.recipeInstructions.map(inst => {
+                    if (typeof inst === 'string') return inst;
+                    if (inst.text) return inst.text;
+                    return JSON.stringify(inst);
+                });
+            } else if (Array.isArray(recipe.instructions)) {
+                instructions = recipe.instructions;
+            } else if (Array.isArray(recipe.instructions_list)) {
+                instructions = recipe.instructions_list;
+            }
+            
+            // Extract servings
+            let servings = 4; // default
+            if (recipe.servings) {
+                servings = parseInt(recipe.servings);
+            } else if (recipe.recipeYield) {
+                // Parse "4 servings" or just "4"
+                const match = String(recipe.recipeYield).match(/\d+/);
+                servings = match ? parseInt(match[0]) : 4;
+            }
+            
+            // Extract times
+            const prepTime = recipe.prepTime || recipe.prep_time || 'Not specified';
+            const cookTime = recipe.cookTime || recipe.cook_time || 'Not specified';
+            
+            // Extract category
+            const category = recipe.category || recipe.recipeCategory || 'Main Course';
+            
+            // Normalize the recipe structure to match our format
+            return {
+                title: title,
+                course: recipe.course || 'Dinner',
+                category: category,
+                collections: recipe.collections || [],
+                source: recipe.source || recipe.url || '',
+                servings: servings,
+                prepTime: prepTime,
+                cookTime: cookTime,
+                ingredients: ingredients,
+                instructions: instructions,
+                notes: recipe.notes || recipe.description || '',
+                nutrition: recipe.nutrition || recipe.nutrients || {},
+                images: Array.isArray(recipe.images) ? recipe.images : 
+                        recipe.image ? [recipe.image] : []
+            };
+        });
     }
 
     extractTitle(recipeEl) {
@@ -636,27 +1088,48 @@ async scrapeRecipeFromUrl() {
         return duration;
     }
 
-    formatTime(isoTime) {
-        // Handle PT0S or missing times
-        if (!isoTime || isoTime === 'PT0S' || isoTime === 'PT0M' || isoTime === '') {
-            return 'Not specified';
-        }
+	formatTime(isoTime) {
+		// Handle null, undefined, or empty
+		if (!isoTime || isoTime === '') {
+			return 'Not specified';
+		}
+		
+		// If it's already a plain string like "30 minutes", return it
+		if (typeof isoTime === 'string' && !isoTime.startsWith('PT')) {
+			return isoTime;
+		}
+		
+		// If it's a number, assume it's minutes
+		if (typeof isoTime === 'number') {
+			if (isoTime === 0) return 'Not specified';
+			const hours = Math.floor(isoTime / 60);
+			const minutes = isoTime % 60;
+			const parts = [];
+			if (hours > 0) parts.push(`${hours}h`);
+			if (minutes > 0) parts.push(`${minutes}m`);
+			return parts.length > 0 ? parts.join(' ') : 'Not specified';
+		}
+		
+		// Handle PT0S or PT0M
+		if (isoTime === 'PT0S' || isoTime === 'PT0M') {
+			return 'Not specified';
+		}
 
-        // Parse ISO 8601 duration format (PT15M, PT1H30M, etc.)
-        const match = isoTime.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-        if (!match) return isoTime;
+		// Parse ISO 8601 duration format (PT15M, PT1H30M, etc.)
+		const match = isoTime.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+		if (!match) return isoTime;
 
-        const hours = match[1] ? parseInt(match[1]) : 0;
-        const minutes = match[2] ? parseInt(match[2]) : 0;
-        const seconds = match[3] ? parseInt(match[3]) : 0;
+		const hours = match[1] ? parseInt(match[1]) : 0;
+		const minutes = match[2] ? parseInt(match[2]) : 0;
+		const seconds = match[3] ? parseInt(match[3]) : 0;
 
-        const parts = [];
-        if (hours > 0) parts.push(`${hours}h`);
-        if (minutes > 0) parts.push(`${minutes}m`);
-        if (seconds > 0 && hours === 0) parts.push(`${seconds}s`);
+		const parts = [];
+		if (hours > 0) parts.push(`${hours}h`);
+		if (minutes > 0) parts.push(`${minutes}m`);
+		if (seconds > 0 && hours === 0) parts.push(`${seconds}s`);
 
-        return parts.length > 0 ? parts.join(' ') : 'Not specified';
-    }    
+		return parts.length > 0 ? parts.join(' ') : 'Not specified';
+	}
 
     parseIngredientText(text) {
         const match = text.match(/^(\d+(?:\/\d+)?(?:\.\d+)?)\s+(\w+)\s+(.+)$/);
@@ -768,6 +1241,11 @@ async scrapeRecipeFromUrl() {
 
     showProgress(show) {
         const progressEl = document.getElementById('importProgress');
+        if (!progressEl) {
+            console.warn('importProgress element not found');
+            return;
+        }
+        
         if (show) {
             progressEl.classList.remove('hidden');
         } else {
@@ -776,25 +1254,57 @@ async scrapeRecipeFromUrl() {
     }
 
     updateProgress(percent, text) {
-        document.getElementById('progressFill').style.width = `${percent}%`;
-        document.getElementById('progressText').textContent = text;
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        
+        if (progressFill) {
+            progressFill.style.width = `${percent}%`;
+        }
+        if (progressText) {
+            progressText.textContent = text;
+        }
     }
 
     showImportPreview(recipes) {
+        console.log('showImportPreview called with', recipes.length, 'recipes');
+        
         const previewEl = document.getElementById('importPreview');
         const contentEl = document.getElementById('previewContent');
+        
+        console.log('Preview element:', previewEl);
+        console.log('Content element:', contentEl);
+        
+        if (!previewEl || !contentEl) {
+            console.error('Preview elements not found!');
+            return;
+        }
         
         contentEl.innerHTML = recipes.map(recipe => `
             <div class="preview-recipe">
                 <h5>${recipe.title}</h5>
-                <div class="preview-recipe-meta">
+                <div class="preview-preview-meta">
                     ${recipe.course} • ${recipe.category} • ${recipe.servings} servings • ${recipe.ingredients.length} ingredients
                     ${recipe.nutrition.calories ? `• ${recipe.nutrition.calories} cal` : ''}
                 </div>
             </div>
         `).join('');
         
-        previewEl.classList.remove('hidden');
+        console.log('Showing preview modal...');
+        
+        // Force display with aggressive styling
+        previewEl.style.display = 'flex';
+        previewEl.style.position = 'fixed';
+        previewEl.style.top = '0';
+        previewEl.style.left = '0';
+        previewEl.style.right = '0';
+        previewEl.style.bottom = '0';
+        previewEl.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+        previewEl.style.zIndex = '9999';
+        previewEl.style.alignItems = 'center';
+        previewEl.style.justifyContent = 'center';
+        
+        console.log('Modal display style:', previewEl.style.display);
+        console.log('Modal z-index:', previewEl.style.zIndex);
     }
 
     confirmImport() {
@@ -806,110 +1316,106 @@ async scrapeRecipeFromUrl() {
         
         const count = this.pendingImportRecipes.length;
         this.pendingImportRecipes = [];
-        document.getElementById('importPreview').classList.add('hidden');
+        
+        const importPreview = document.getElementById('importPreview');
+        if (importPreview) {
+            importPreview.style.display = 'none'; // Hide using style
+        }
         
         this.showStatus(`Successfully imported ${count} recipe(s)!`, 'success');
-        setTimeout(() => this.switchTab('library'), 1500);
+        
+        // Switch to recipes view
+        setTimeout(() => {
+            document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+            document.getElementById('recipesView').classList.add('active');
+            
+            document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+            const recipesNav = document.querySelector('.nav-item[data-view="recipesView"]');
+            if (recipesNav) recipesNav.classList.add('active');
+            
+            this.renderRecipes();
+        }, 500);
     }
 
     cancelImport() {
         this.pendingImportRecipes = [];
-        document.getElementById('importPreview').classList.add('hidden');
+        
+        const importPreview = document.getElementById('importPreview');
+        if (importPreview) {
+            importPreview.style.display = 'none'; // Hide using style
+        }
+        
         this.showStatus('Import cancelled', 'info');
     }
+	
+	renderRecipes() {
+		console.log('renderRecipes() called, recipes count:', this.recipes.length);
+		const recipeGrid = document.getElementById('recipeGrid');
+		console.log('recipeGrid element:', recipeGrid);
+		const recipes = this.getFilteredRecipes();
+		console.log('Filtered recipes count:', recipes.length);
+		
+		if (recipes.length === 0) {
+			recipeGrid.innerHTML = '<p style="padding: 2rem; text-align: center; color: var(--text-secondary);">No recipes found</p>';
+			return;
+		}
 
-    renderRecipes() {
-        const grid = document.getElementById('recipeGrid');
-        const filteredRecipes = this.getFilteredRecipes();
-        
-        if (filteredRecipes.length === 0) {
-            grid.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-state-icon">
-                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                            <polyline points="14 2 14 8 20 8"></polyline>
-                            <line x1="16" y1="13" x2="8" y2="13"></line>
-                            <line x1="16" y1="17" x2="8" y2="17"></line>
-                        </svg>
-                    </div>
-                    <h3>No recipes found</h3>
-                    <p>Try adjusting your search or filters, or add a new recipe!</p>
-                </div>
-            `;
-            return;
-        }
+		// Sort recipes alphabetically by title
+		const sortedRecipes = recipes.sort((a, b) => {
+			return a.title.localeCompare(b.title);
+		});
 
-        grid.innerHTML = filteredRecipes.map(recipe => `
-            <div class="recipe-card" onclick="recipeManager.openRecipeModal(${recipe.id})">
-                <div class="recipe-card-header">
-                    <h3 class="recipe-card-title">${recipe.title}</h3>
-                    <div class="recipe-card-tags">
-                        <span class="recipe-tag recipe-tag--course">${recipe.course}</span>
-                        <span class="recipe-tag recipe-tag--category">${recipe.category}</span>
-                    </div>
-                </div>
-                <div class="recipe-card-meta">
-                    <span>🍽️ ${recipe.servings} servings</span>
-                    ${recipe.prepTime && recipe.prepTime !== 'PT0S' ? `<span>⏱️ ${this.formatTime(recipe.prepTime)}</span>` : ''}
-                    ${recipe.cookTime && recipe.cookTime !== 'PT0S' ? `<span>🔥 ${this.formatTime(recipe.cookTime)}</span>` : ''}
-                    ${recipe.nutrition.calories ? `<span>📊 ${recipe.nutrition.calories} cal</span>` : ''}
-                </div>
-                ${recipe.nutrition.calories ? `
-                    <div class="recipe-card-nutrition">
-                        ${recipe.nutrition.calories} cal • ${recipe.nutrition.protein || '0g'} protein • ${recipe.nutrition.totalCarbs || '0g'} carbs
-                    </div>
-                ` : ''}
-                <div class="recipe-card-actions" onclick="event.stopPropagation()">
-                    <button class="btn btn--primary" onclick="recipeManager.openRecipeModal(${recipe.id})">View</button>
-                    <button class="btn btn--secondary" onclick="recipeManager.deleteRecipe(${recipe.id})">Delete</button>
-                </div>
-            </div>
-        `).join('');
-    }
+		recipeGrid.innerHTML = sortedRecipes.map(recipe => {
+			const imageUrl = recipe.images && recipe.images.length > 0 ? recipe.images[0] : '';
+			const prepTime = this.formatTime(recipe.prepTime);
+			const cookTime = this.formatTime(recipe.cookTime);
 
-    getFilteredRecipes() {
-        let filtered = [...this.recipes];
+			return `
+				<div class="recipe-card" onclick="recipeManager.openRecipeModal(${recipe.id})">
+					${imageUrl ? 
+						`<img src="${imageUrl}" alt="${recipe.title}" class="recipe-card-image">` :
+						`<div class="recipe-card-image" style="background: linear-gradient(135deg, var(--primary-light) 0%, var(--primary) 100%); display: flex; align-items: center; justify-content: center; color: white; font-size: 2rem;">🍽️</div>`
+					}
+					<div class="recipe-card-content">
+						<div>
+							<h3 class="recipe-card-title">${recipe.title}</h3>
+							<div class="recipe-card-tags">
+								<span class="recipe-tag">${recipe.course}</span>
+								<span class="recipe-tag">${recipe.category}</span>
+							</div>
+						</div>
+						<div class="recipe-card-meta">
+							${prepTime !== 'Not specified' ? `<span>⏱️ ${prepTime}</span>` : ''}
+							${cookTime !== 'Not specified' ? `<span>🔥 ${cookTime}</span>` : ''}
+							<span>🍽️ ${recipe.servings} servings</span>
+						</div>
+					</div>
+				</div>
+			`;
+		}).join('');
+	}
+	
+getFilteredRecipes() {
+    const courseFilterEl = document.getElementById('courseFilter');
+    const categoryFilterEl = document.getElementById('categoryFilter');
+    const searchInputEl = document.getElementById('searchInput');
+    
+    const courseFilter = courseFilterEl ? courseFilterEl.value : '';
+    const categoryFilter = categoryFilterEl ? categoryFilterEl.value : '';
+    const searchTerm = searchInputEl ? searchInputEl.value.toLowerCase() : '';
+    
+    return this.recipes.filter(recipe => {
+        const matchesCourse = !courseFilter || recipe.course === courseFilter;
+        const matchesCategory = !categoryFilter || recipe.category === categoryFilter;
+        const matchesSearch = !searchTerm || 
+            recipe.title.toLowerCase().includes(searchTerm) ||
+            recipe.ingredients.some(ing => ing.ingredient.toLowerCase().includes(searchTerm)) ||
+            recipe.category.toLowerCase().includes(searchTerm) ||
+            recipe.course.toLowerCase().includes(searchTerm);
         
-        const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
-        if (searchTerm) {
-            filtered = filtered.filter(recipe => 
-                recipe.title.toLowerCase().includes(searchTerm) ||
-                recipe.course.toLowerCase().includes(searchTerm) ||
-                recipe.category.toLowerCase().includes(searchTerm) ||
-                recipe.ingredients.some(ing => ing.ingredient.toLowerCase().includes(searchTerm)) ||
-                recipe.collections.some(col => col.toLowerCase().includes(searchTerm))
-            );
-        }
-        
-        const courseFilter = document.getElementById('courseFilter').value;
-        if (courseFilter && courseFilter !== "") {
-            filtered = filtered.filter(recipe => recipe.course === courseFilter);
-        }
-        
-        const categoryFilter = document.getElementById('categoryFilter').value;
-        if (categoryFilter && categoryFilter !== "") {
-            filtered = filtered.filter(recipe => recipe.category === categoryFilter);
-        }
-        
-        const sortBy = document.getElementById('sortBy').value;
-        filtered.sort((a, b) => {
-            switch (sortBy) {
-                case 'name':
-                    return a.title.localeCompare(b.title);
-                case 'category':
-                    return a.category.localeCompare(b.category);
-                case 'course':
-                    return a.course.localeCompare(b.course);
-                case 'servings':
-                    return a.servings - b.servings;
-                default:
-                    return 0;
-            }
-        });
-        
-        return filtered;
-    }
+        return matchesCourse && matchesCategory && matchesSearch;
+    });
+}	
 
     filterRecipes() {
         this.renderRecipes();
@@ -945,64 +1451,71 @@ async scrapeRecipeFromUrl() {
         }
     }
 
-    openRecipeModal(recipeId) {
-        const recipe = this.recipes.find(r => r.id === recipeId);
-        if (!recipe) return;
-
-        this.currentRecipe = recipe;
-        this.currentScaledServings = recipe.servings;
-        
-        document.getElementById('modalRecipeTitle').textContent = recipe.title;
-        document.getElementById('modalRecipeTitle').dataset.recipeId = recipe.id;
-        
-        const tagsEl = document.getElementById('modalRecipeTags');
-        tagsEl.innerHTML = `
-            <span class="recipe-tag recipe-tag--course">${recipe.course}</span>
-            <span class="recipe-tag recipe-tag--category">${recipe.category}</span>
-            ${recipe.collections.map(col => `<span class="recipe-tag">${col}</span>`).join('')}
-        `;
-        
-        document.getElementById('modalRecipeCourse').textContent = recipe.course;
-        document.getElementById('modalRecipeCategory').textContent = recipe.category;
-        document.getElementById('modalRecipePrepTime').textContent = this.formatTime(recipe.prepTime);
-        document.getElementById('modalRecipeCookTime').textContent = this.formatTime(recipe.cookTime);
-        
-        const sourceSection = document.getElementById('modalSourceSection');
-        const sourceLink = document.getElementById('modalRecipeSource');
-        if (recipe.source) {
-            sourceLink.textContent = recipe.source;
-            sourceLink.href = recipe.source;
-            sourceSection.style.display = 'block';
-        } else {
-            sourceSection.style.display = 'none';
-        }
-        
-        this.updateNutritionDisplay(recipe.nutrition);
-        
-        document.getElementById('originalServings').textContent = recipe.servings;
-        document.getElementById('currentServings').value = recipe.servings;
-        
-        this.updateScaledIngredients();
-        this.renderInstructions(recipe.instructions);
-        
-        if (recipe.notes) {
-            document.getElementById('modalRecipeNotes').textContent = recipe.notes;
-            document.getElementById('modalNotesSection').style.display = 'block';
-        } else {
-            document.getElementById('modalNotesSection').style.display = 'none';
-        }
-        
-        this.updateImageGallery(recipe.images);
-        
-        document.getElementById('recipeModal').classList.remove('hidden');
+openRecipeModal(recipeId) {
+    const recipe = this.recipes.find(r => r.id === recipeId);
+    if (!recipe) return;
+    this.currentRecipe = recipe;
+    this.currentScaledServings = recipe.servings;
+    
+    document.getElementById('modalRecipeTitle').textContent = recipe.title;
+    document.getElementById('modalRecipeTitle').dataset.recipeId = recipe.id;
+    
+    // New design - no tags section, just meta values
+    document.getElementById('modalRecipeCourse').textContent = recipe.course;
+    document.getElementById('modalRecipeCategory').textContent = recipe.category;
+    document.getElementById('modalRecipePrepTime').textContent = this.formatTime(recipe.prepTime);
+    document.getElementById('modalRecipeCookTime').textContent = this.formatTime(recipe.cookTime);
+    
+    const sourceSection = document.getElementById('modalSourceSection');
+    const sourceLink = document.getElementById('modalRecipeSource');
+    if (recipe.source) {
+        sourceLink.textContent = recipe.source;
+        sourceLink.href = recipe.source;
+        sourceSection.style.display = 'block';
+    } else {
+        sourceSection.style.display = 'none';
     }
+    
+    // Servings
+    document.getElementById('originalServings').textContent = recipe.servings;
+    document.getElementById('currentServings').value = recipe.servings;
+    
+    // Ingredients and instructions
+    this.updateScaledIngredients();
+    this.renderInstructions(recipe.instructions);
+    
+    // Notes
+    if (recipe.notes) {
+        document.getElementById('modalRecipeNotes').textContent = recipe.notes;
+        document.getElementById('modalNotesSection').style.display = 'block';
+    } else {
+        document.getElementById('modalNotesSection').style.display = 'none';
+    }
+    
+    // Image - new design has single image on right
+    const imageEl = document.getElementById('modalRecipeImage');
+    if (recipe.images && recipe.images.length > 0) {
+        imageEl.src = recipe.images[0];
+        imageEl.alt = recipe.title;
+        imageEl.style.display = 'block';
+    } else {
+        // No image - show placeholder
+        imageEl.src = '';
+        imageEl.alt = 'No image available';
+        imageEl.style.display = 'block';
+        imageEl.style.background = 'linear-gradient(135deg, var(--primary-light) 0%, var(--primary) 100%)';
+    }
+    
+    // Show modal
+    document.getElementById('recipeModal').classList.add('active');
+}
 
     editRecipe(recipeId) {
     const recipe = this.recipes.find(r => r.id === recipeId);
     if (!recipe) return;
 
     // Close the view modal
-    document.getElementById('recipeModal').classList.add('hidden');
+    document.getElementById('recipeModal').classList.remove('active');
 
     // Populate the edit form
     const form = document.getElementById('editRecipeForm');
@@ -1071,11 +1584,11 @@ async scrapeRecipeFromUrl() {
         </div>
 
         <button type="submit" class="btn btn--primary">Save Changes</button>
-        <button type="button" class="btn btn--secondary" onclick="document.getElementById('editModal').classList.add('hidden')">Cancel</button>
+        <button type="button" class="btn btn--secondary" onclick="document.getElementById('editModal').classList.remove('active')">Cancel</button>
     `;
 
     // Show edit modal
-    document.getElementById('editModal').classList.remove('hidden');
+    document.getElementById('editModal').classList.add('active');
 
     // Setup form submission
     form.onsubmit = (e) => this.saveEditedRecipe(e);
@@ -1138,6 +1651,33 @@ saveEditedRecipe(e) {
     alert('Recipe updated successfully!');
 }
 
+
+	initServingsControls() {
+    document.getElementById('increaseServings').addEventListener('click', () => {
+        const input = document.getElementById('currentServings');
+        const newValue = parseInt(input.value) + 1;
+        input.value = newValue;
+        this.currentScaledServings = newValue;
+        this.updateScaledIngredients();
+    });
+    
+    document.getElementById('decreaseServings').addEventListener('click', () => {
+        const input = document.getElementById('currentServings');
+        const newValue = Math.max(1, parseInt(input.value) - 1); // Don't go below 1
+        input.value = newValue;
+        this.currentScaledServings = newValue;
+        this.updateScaledIngredients();
+    });
+    
+    // Also handle manual input changes
+    document.getElementById('currentServings').addEventListener('change', (e) => {
+        const newValue = Math.max(1, parseInt(e.target.value) || 1);
+        e.target.value = newValue;
+        this.currentScaledServings = newValue;
+        this.updateScaledIngredients();
+    });
+}
+
     updateNutritionDisplay(nutrition) {
         const nutritionSection = document.getElementById('modalNutritionSection');
         const nutritionInfo = document.getElementById('modalNutritionInfo');
@@ -1190,7 +1730,7 @@ saveEditedRecipe(e) {
     updateScaledIngredients() {
         const recipe = this.currentRecipe;
         const scaleFactor = this.currentScaledServings / recipe.servings;
-        const ingredientsList = document.getElementById('modalIngredientsList');
+        const ingredientsList = document.getElementById('modalRecipeIngredients');
         
         ingredientsList.innerHTML = recipe.ingredients.map((ing, index) => {
             const scaledQuantity = ing.quantity * scaleFactor;
@@ -1235,7 +1775,7 @@ saveEditedRecipe(e) {
     }
 
     renderInstructions(instructions) {
-        const instructionsList = document.getElementById('modalInstructionsList');
+        const instructionsList = document.getElementById('modalRecipeInstructions');
         instructionsList.innerHTML = instructions.map(instruction => 
             `<li>${instruction}</li>`
         ).join('');
@@ -1291,8 +1831,255 @@ saveEditedRecipe(e) {
             }, 3000);
         }
     }
-}
 
+    // Show share modal
+    showShareModal() {
+        console.log('showShareModal called');
+        const modal = document.getElementById('shareModal');
+        console.log('Share modal element:', modal);
+        
+        if (modal) {
+            console.log('Setting modal styles...');
+            modal.classList.remove('hidden');
+            modal.style.display = 'flex';
+            console.log('Modal should now be visible');
+        } else {
+            console.error('Share modal not found in DOM!');
+        }
+    }
+
+    // Close share modal
+    closeShareModal() {
+        const modal = document.getElementById('shareModal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+    }
+
+    // Share as Text
+    async shareAsText() {
+        const recipe = this.recipes.find(r => r.id === this.currentShareRecipeId);
+        if (!recipe) return;
+        
+        try {
+            //const { Share } = await import('@capacitor/share');
+            
+            // Format ingredients
+            const ingredientsList = recipe.ingredients
+                .map(ing => `• ${ing.quantity} ${ing.unit} ${ing.ingredient}`.trim())
+                .join('\n');
+            
+            // Format instructions
+            const instructionsList = recipe.instructions
+                .map((inst, i) => `${i + 1}. ${inst}`)
+                .join('\n\n');
+            
+            // Create shareable text
+            const shareText = `
+    ${recipe.title}
+
+    ${recipe.servings} servings | Prep: ${recipe.prepTime} | Cook: ${recipe.cookTime}
+    ${recipe.course} • ${recipe.category}
+
+    INGREDIENTS:
+    ${ingredientsList}
+
+    INSTRUCTIONS:
+    ${instructionsList}
+
+    ${recipe.notes ? '\nNOTES:\n' + recipe.notes : ''}
+
+    Shared from Recipe Manager Pro
+            `.trim();
+            
+            await Capacitor.Plugins.Share.share({
+                title: recipe.title,
+                text: shareText,
+                dialogTitle: 'Share Recipe'
+            });
+            
+            this.closeShareModal();
+        } catch (error) {
+            console.error('Error sharing as text:', error);
+            alert('Failed to share recipe. Please try again.');
+        }
+    }
+
+    // Share as PDF
+    async shareAsPDF() {
+        const recipe = this.recipes.find(r => r.id === this.currentShareRecipeId);
+        if (!recipe) return;
+        
+        try {
+            const { jsPDF } = window.jspdf;
+            /*const { Share } = await import('@capacitor/share');
+            const { Filesystem, Directory } = await import('@capacitor/filesystem');*/
+            
+            // Create PDF
+            const doc = new jsPDF();
+            let y = 20;
+            const leftMargin = 20;
+            const rightMargin = 190;
+            const lineHeight = 6;
+            
+            // Title
+            doc.setFontSize(22);
+            doc.setFont(undefined, 'bold');
+            const titleLines = doc.splitTextToSize(recipe.title, rightMargin - leftMargin);
+            titleLines.forEach(line => {
+                doc.text(line, leftMargin, y);
+                y += 10;
+            });
+            y += 5;
+            
+            // Meta info
+            doc.setFontSize(11);
+            doc.setFont(undefined, 'normal');
+            doc.setTextColor(100, 100, 100);
+            doc.text(`${recipe.servings} servings | Prep: ${recipe.prepTime} | Cook: ${recipe.cookTime}`, leftMargin, y);
+            y += lineHeight;
+            doc.text(`${recipe.course} • ${recipe.category}`, leftMargin, y);
+            y += 12;
+            
+            doc.setTextColor(0, 0, 0);
+            
+            // Ingredients section
+            doc.setFontSize(16);
+            doc.setFont(undefined, 'bold');
+            doc.text('Ingredients', leftMargin, y);
+            y += 8;
+            
+            doc.setFontSize(11);
+            doc.setFont(undefined, 'normal');
+            recipe.ingredients.forEach(ing => {
+                const line = `• ${ing.quantity} ${ing.unit} ${ing.ingredient}`.trim();
+                const textLines = doc.splitTextToSize(line, rightMargin - leftMargin - 5);
+                
+                textLines.forEach(textLine => {
+                    if (y > 270) {
+                        doc.addPage();
+                        y = 20;
+                    }
+                    doc.text(textLine, leftMargin + 5, y);
+                    y += lineHeight;
+                });
+            });
+            
+            y += 8;
+            
+            // Instructions section
+            if (y > 240) {
+                doc.addPage();
+                y = 20;
+            }
+            
+            doc.setFontSize(16);
+            doc.setFont(undefined, 'bold');
+            doc.text('Instructions', leftMargin, y);
+            y += 8;
+            
+            doc.setFontSize(11);
+            doc.setFont(undefined, 'normal');
+            recipe.instructions.forEach((inst, i) => {
+                const stepText = `${i + 1}. ${inst}`;
+                const lines = doc.splitTextToSize(stepText, rightMargin - leftMargin - 5);
+                
+                lines.forEach((line, lineIndex) => {
+                    if (y > 270) {
+                        doc.addPage();
+                        y = 20;
+                    }
+                    doc.text(line, leftMargin + 5, y);
+                    y += lineHeight;
+                });
+                y += 3; // Extra space between steps
+            });
+            
+            // Notes (if any)
+            if (recipe.notes) {
+                y += 8;
+                
+                if (y > 240) {
+                    doc.addPage();
+                    y = 20;
+                }
+                
+                doc.setFontSize(16);
+                doc.setFont(undefined, 'bold');
+                doc.text('Notes', leftMargin, y);
+                y += 8;
+                
+                doc.setFontSize(11);
+                doc.setFont(undefined, 'normal');
+                const noteLines = doc.splitTextToSize(recipe.notes, rightMargin - leftMargin);
+                noteLines.forEach(line => {
+                    if (y > 270) {
+                        doc.addPage();
+                        y = 20;
+                    }
+                    doc.text(line, leftMargin, y);
+                    y += lineHeight;
+                });
+            }
+            
+            // Footer
+            const pageCount = doc.internal.getNumberOfPages();
+            for (let i = 1; i <= pageCount; i++) {
+                doc.setPage(i);
+                doc.setFontSize(9);
+                doc.setTextColor(150, 150, 150);
+                doc.text(`Shared from Recipe Manager Pro | Page ${i} of ${pageCount}`, leftMargin, 285);
+            }
+            
+            // Convert to base64
+            const pdfData = doc.output('datauristring').split(',')[1];
+            const fileName = `${recipe.title.replace(/[^a-z0-9]/gi, '_')}.pdf`;
+            
+            // Save to cache
+            const result = await Capacitor.Plugins.Filesystem.writeFile({
+                path: fileName,
+                data: pdfData,
+                directory: 'CACHE'
+            });
+            
+            // Share
+            await Capacitor.Plugins.Share.share({
+                title: recipe.title,
+                files: [result.uri],
+                dialogTitle: 'Share Recipe as PDF'
+            });
+            
+            this.closeShareModal();
+        } catch (error) {
+            console.error('Error sharing as PDF:', error);
+            alert('Failed to create PDF. Please try again.');
+        }
+    }
+
+    // Share as JSON
+    async shareAsJSON() {
+        const recipe = this.recipes.find(r => r.id === this.currentShareRecipeId);
+        if (!recipe) return;
+        
+        try {
+            // Create JSON text
+            const jsonData = JSON.stringify(recipe, null, 2);
+            
+            // Share as text (simpler, always works)
+            await Capacitor.Plugins.Share.share({
+                title: `${recipe.title} - Recipe File`,
+                text: jsonData,
+                dialogTitle: 'Share Recipe as JSON'
+            });
+            
+            this.closeShareModal();
+        } catch (error) {
+            console.error('Error sharing as JSON:', error);
+            alert('Failed to share recipe file: ' + error.message);
+        }
+    }
+
+}
 const recipeManager = new RecipeManager();
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1300,4 +2087,29 @@ document.addEventListener('DOMContentLoaded', () => {
     if (removeBtn) {
         removeBtn.addEventListener('click', (e) => e.target.closest('.ingredient-row').remove());
     }
+});
+
+this.recipes.push(mockRecipe);
+console.log('Recipe added! Total recipes:', this.recipes.length);
+this.saveRecipesToServer();
+console.log('Recipes saved to localStorage');
+this.renderRecipes();
+console.log('Recipes rendered');
+
+document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+        console.log('Recipes loaded:', recipeManager.recipes.length);
+        
+        // Force render category grid
+        if (typeof recipeManager.renderCategoryGrid === 'function') {
+            recipeManager.renderCategoryGrid();
+        } else {
+            console.error('renderCategoryGrid not defined!');
+        }
+        
+        // Also render recipes list
+        if (typeof recipeManager.renderRecipes === 'function') {
+            recipeManager.renderRecipes();
+        }
+    }, 1000);
 });

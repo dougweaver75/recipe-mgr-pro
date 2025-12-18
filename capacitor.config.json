@@ -1,5 +1,11 @@
 {
-  "appId": "com.rmp.local",
-  "appName": "Recipe Minder Pro",
-  "webDir": "www"
+  "appId": "com.recipemanager.app",
+  "appName": "Recipe Manager Pro",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "plugins": {
+    "StatusBar": {
+      "style": "default"
+    }
+  }
 }

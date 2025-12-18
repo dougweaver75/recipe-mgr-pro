@@ -12,6 +12,9 @@
   "dependencies": {
     "@capacitor/android": "^7.4.3",
     "@capacitor/cli": "^7.4.3",
-    "@capacitor/core": "^7.4.3"
+    "@capacitor/core": "^7.4.3",
+    "@capacitor/filesystem": "^7.1.5",
+    "@capacitor/share": "^7.0.2",
+    "jspdf": "^3.0.4"
   }
 }
