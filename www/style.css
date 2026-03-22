@@ -685,7 +685,7 @@ body {
     display: none !important;
 }
 
-.modal {
+/*.modal {
     display: none;
     position: fixed;
     top: 0;
@@ -711,6 +711,70 @@ body {
     overflow: auto;
     padding: 1.5rem;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}*/
+
+/* FORCE FULL SCREEN FOR RECIPE MODAL */
+#recipeModal.modal {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--bg-primary);
+    z-index: 2000;
+    transform: translateX(100%);
+    transition: transform 0.3s ease-in-out;
+    padding: 0;
+}
+
+#recipeModal.modal.active {
+    transform: translateX(0);
+}
+
+/* 1. Reset container padding so the header stretches full width */
+#recipeModal .modal-content {
+    background: transparent;
+    border-radius: 0;
+    width: 100%;
+    height: 100%;
+    max-height: 100vh;
+    box-shadow: none;
+    margin: 0;
+    padding: 0; /* Changed from var(--spacing-md) */
+    overflow-y: auto; /* This allows the body to scroll */
+}
+
+/* 2. Make the Back Button a Sticky Header */
+#recipeModal #modalBackBtn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background-color: var(--bg-primary); /* Opaque background hides scrolling text */
+    position: sticky; /* The magic property */
+    top: 0;
+    z-index: 100;
+    
+    /* FIX THE SYSTEM TRAY OVERLAP */
+    /* Adds padding for the status bar + extra breathing room */
+    padding-top: calc(env(safe-area-inset-top) + 1rem); 
+    padding-bottom: 1rem;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+    
+    /* Optional: Add a subtle shadow so it looks like a header */
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 1.5rem;
+}
+
+/* 3. Add padding back to the content sections */
+/* Since we removed padding from the parent, we apply it to children */
+#recipeModal .modal-header-section,
+#recipeModal .recipe-detail-content,
+#recipeModal .recipe-sections,
+#recipeModal .modal-notes-section {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
 }
 
 /* Share Options Modal */

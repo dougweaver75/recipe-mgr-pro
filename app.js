@@ -39,6 +39,32 @@ class RecipeManager {
 		this.initRedesign();
     }
 
+// --- WAKE LOCK (CAPACITOR PLUGIN) ---
+    async requestWakeLock() {
+        // Check if Capacitor and the plugin are available
+        if (typeof Capacitor !== 'undefined' && Capacitor.Plugins && Capacitor.Plugins.KeepAwake) {
+            try {
+                await Capacitor.Plugins.KeepAwake.keepAwake();
+                console.log('Device set to keep awake');
+            } catch (err) {
+                console.error('Failed to set keep awake:', err);
+            }
+        } else {
+            console.log('KeepAwake plugin not found (running in browser?)');
+        }
+    }
+
+    async releaseWakeLock() {
+        if (typeof Capacitor !== 'undefined' && Capacitor.Plugins && Capacitor.Plugins.KeepAwake) {
+            try {
+                await Capacitor.Plugins.KeepAwake.allowSleep();
+                console.log('Device allowed to sleep');
+            } catch (err) {
+                console.error('Failed to allow sleep:', err);
+            }
+        }
+    }
+
     init() {
         this.setupEventListeners();
         this.setupTabs();
@@ -53,25 +79,125 @@ class RecipeManager {
         this.renderCategoryGrid();
 		this.initServingsControls();
 		this.initModalActions();
-		this.loadRecipesFromServer();		
+		this.loadRecipesFromServer();
+		this.initImportHandlers();
+        this.initBackButton();
+    }
+	
+    initBackButton() {
+        // Check if we are running in Capacitor context
+        if (typeof Capacitor !== 'undefined' && Capacitor.Plugins && Capacitor.Plugins.App) {
+            
+            Capacitor.Plugins.App.addListener('backButton', ({ canGoBack }) => {
+                console.log('Back button pressed');
+                
+                // 1. Priority: Close any open Modals
+                const openModal = document.querySelector('.modal.active');
+                if (openModal) {
+                    // If the recipe modal is open, or any other modal
+                    this.closeModal();
+                    // Also specifically ensure share modal is closed if it's separate
+                    this.closeShareModal(); 
+                    return; // Stop here, don't exit app
+                }
+
+                // 2. Priority: Close Search Overlay if open
+                const searchOverlay = document.getElementById('searchOverlay');
+                if (searchOverlay && searchOverlay.classList.contains('active')) {
+                    searchOverlay.classList.remove('active');
+                    return;
+                }
+
+                // 3. Priority: Navigate Tabs (If not on "Home", go to Home)
+                const homeView = document.getElementById('homeView');
+                if (homeView && !homeView.classList.contains('active')) {
+                    // Manually click the "Home" nav button to trigger the switch
+                    const homeBtn = document.querySelector('.nav-item[data-view="homeView"]');
+                    if (homeBtn) homeBtn.click();
+                    return;
+                }
+
+                // 4. If none of the above, actually exit the app
+                Capacitor.Plugins.App.exitApp();
+            });
+        }
+    }
+
+    initImportHandlers() {
+        console.log('=== initImportHandlers called ===');
+
+        // URL scraping
+        const scrapeBtn = document.getElementById('scrapeUrl');
+        if (scrapeBtn) {
+            scrapeBtn.addEventListener('click', () => {
+                console.log('Scrape button clicked!');
+                this.scrapeRecipeFromUrl();
+            });
+            console.log('scrapeUrl listener attached');
+        }
+
+        // File upload
+        const fileUploadArea = document.getElementById('fileUploadArea');
+        const fileInput = document.getElementById('fileInput');
+
+        if (fileUploadArea && fileInput) {
+            fileUploadArea.addEventListener('click', () => fileInput.click());
+            fileUploadArea.addEventListener('dragover', (e) => this.handleDragOver(e));
+            fileUploadArea.addEventListener('drop', (e) => this.handleFileDrop(e));
+            fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
+        }
+
+        // Import confirmation (only if elements exist)
+        const confirmBtn = document.getElementById('confirmImport');
+        const cancelBtn = document.getElementById('cancelImport');
+        if (confirmBtn) confirmBtn.addEventListener('click', () => this.confirmImport());
+        if (cancelBtn) cancelBtn.addEventListener('click', () => this.cancelImport());
+
+        console.log('=== initImportHandlers complete ===');
     }
 
     initTheme() {
         const themeToggle = document.getElementById('themeToggle');
         const html = document.documentElement;
 
+        // 1. Load saved theme
         const currentTheme = localStorage.getItem('theme') || 'light';
         html.setAttribute('data-theme', currentTheme);
         this.updateThemeIcon(currentTheme);
+        
+        // 2. Set Initial Status Bar Style
+        this.updateStatusBarStyle(currentTheme);
 
         themeToggle.addEventListener('click', () => {
             const theme = html.getAttribute('data-theme');
             const newTheme = theme === 'light' ? 'dark' : 'light';
+            
             html.setAttribute('data-theme', newTheme);
             localStorage.setItem('theme', newTheme);
             this.updateThemeIcon(newTheme);
+            
+            // 3. Update Status Bar on Toggle
+            this.updateStatusBarStyle(newTheme);
         });
     }
+
+// Helper function to talk to Android
+updateStatusBarStyle(theme) {
+    // Only run if we are in the app (Capacitor exists)
+    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.StatusBar) {
+        const { StatusBar, Style } = window.Capacitor.Plugins;
+        
+        if (theme === 'dark') {
+            // Dark Mode = Dark Background = WE WANT LIGHT ICONS
+            StatusBar.setStyle({ style: 'DARK' }); 
+            StatusBar.setBackgroundColor({ color: '#1A1D23' }); // Matches your --bg-primary in dark mode
+        } else {
+            // Light Mode = Light Background = WE WANT DARK ICONS
+            StatusBar.setStyle({ style: 'LIGHT' });
+            StatusBar.setBackgroundColor({ color: '#FFFFFF' }); // Matches your --bg-primary in light mode
+        }
+    }
+}
 
     updateThemeIcon(theme) {
         const sunIcon = document.getElementById('sunIcon');
@@ -86,34 +212,37 @@ class RecipeManager {
         }
     }
 	
-	initModalActions() {
-		// Edit button
-		document.getElementById('editRecipeBtn').addEventListener('click', () => {
-			const recipeId = document.getElementById('modalRecipeTitle').dataset.recipeId;
-			this.editRecipe(parseInt(recipeId));
-		});
-		
-		// Delete button
-		document.getElementById('deleteRecipeBtn').addEventListener('click', () => {
-			const recipeId = document.getElementById('modalRecipeTitle').dataset.recipeId;
-			if (confirm('Are you sure you want to delete this recipe?')) {
-				this.deleteRecipe(parseInt(recipeId));
-				document.getElementById('recipeModal').classList.remove('active');
-			}
-		});
-		
-		// Modal back button
-		document.getElementById('modalBackBtn').addEventListener('click', () => {
-			document.getElementById('recipeModal').classList.remove('active');
-		});
-		
-		// Edit modal close button (the × button)
-		document.querySelectorAll('[data-modal="editModal"]').forEach(btn => {
-			btn.addEventListener('click', () => {
-				document.getElementById('editModal').classList.remove('active');
-			});
-		});		
-	}	
+    initModalActions() {
+        // Edit button
+        document.getElementById('editRecipeBtn').addEventListener('click', () => {
+            const recipeId = document.getElementById('modalRecipeTitle').dataset.recipeId;
+            this.editRecipe(parseInt(recipeId));
+        });
+        
+        // Delete button
+        document.getElementById('deleteRecipeBtn').addEventListener('click', () => {
+            const recipeId = document.getElementById('modalRecipeTitle').dataset.recipeId;
+            if (confirm('Are you sure you want to delete this recipe?')) {
+                this.deleteRecipe(parseInt(recipeId));
+                this.closeModal(); 
+            }
+        });
+        
+        // Modal back button - ONLY ONE LISTENER HERE
+        document.getElementById('modalBackBtn').addEventListener('click', () => {
+            this.closeModal();
+        });
+        
+        // Share button logic
+        const shareBtn = document.getElementById('shareRecipeBtn');
+        if (shareBtn) {
+            shareBtn.addEventListener('click', () => {
+                const recipeId = document.getElementById('modalRecipeTitle').dataset.recipeId;
+                this.currentShareRecipeId = parseInt(recipeId);
+                this.showShareModal();
+            });
+        }
+    }
 
     initBottomNav() {
         const navItems = document.querySelectorAll('.nav-item');
@@ -302,34 +431,131 @@ class RecipeManager {
         });
     }	
 
-    loadRecipesFromServer() {
-        fetch('load_recipes.php')
-            .then(res => res.json())
-            .then(data => {
-                this.recipes = Array.isArray(data) ? data : [];
+    async loadRecipesFromServer() {
+            console.log('=== SMART LOAD: Starting ===');
+            
+            // 1. Load the User's "Saved" recipes (current state)
+            // We default to an empty array if nothing is saved yet.
+            let userRecipes = [];
+            const stored = localStorage.getItem('recipes');
+            if (stored) {
+                try {
+                    userRecipes = JSON.parse(stored);
+                    console.log(`Loaded ${userRecipes.length} user recipes from storage.`);
+                } catch (e) {
+                    console.error('Corrupt storage, starting fresh.', e);
+                    userRecipes = [];
+                }
+            }
+
+            // 2. Load the App's "Bundled" file (the potentially new version)
+            try {
+                const response = await fetch('recipes.json');
+                const systemRecipes = await response.json();
+                
+                console.log(`Loaded ${systemRecipes.length} system recipes from file.`);
+
+                // 3. THE SMART MERGE
+                // Goal: Keep ALL user recipes + Add NEW system recipes that aren't there.
+                
+                let addedCount = 0;
+                const combinedRecipes = [...userRecipes];
+
+                systemRecipes.forEach(sysRecipe => {
+                    // Check if we already have this system recipe
+                    // We check by ID (if it's a system recipe) OR by Title (to be safe)
+                    const alreadyExists = userRecipes.some(u => 
+                        (u.id === sysRecipe.id && u.isSystemRecipe) || 
+                        u.title === sysRecipe.title
+                    );
+
+                    if (!alreadyExists) {
+                        // It's new! Add it.
+                        // If we have user recipes, we need to ensure the ID doesn't clash.
+                        // If the ID is taken, we generate a new safe one.
+                        if (combinedRecipes.some(r => r.id === sysRecipe.id)) {
+                            const maxId = combinedRecipes.length > 0 
+                                ? Math.max(...combinedRecipes.map(r => r.id)) 
+                                : 0;
+                            sysRecipe.id = maxId + 1;
+                        }
+                        
+                        // Mark it as a system recipe so we know for next time
+                        sysRecipe.isSystemRecipe = true;
+                        
+                        combinedRecipes.push(sysRecipe);
+                        addedCount++;
+                    } else {
+                        // Optional: Update the existing system recipe with new data (fixes typos, etc.)
+                        // BUT only if the user hasn't heavily modified it. 
+                        // For now, we skip it to be safe.
+                    }
+                });
+
+                console.log(`Merge complete. Added ${addedCount} new system recipes.`);
+
+                // 4. Update Memory
+                this.recipes = combinedRecipes;
+
+                // 5. Update the Counter Logic
                 if (this.recipes.length > 0) {
-                    const maxId = Math.max(...this.recipes.map(r => r.id || 0));
+                    const maxId = Math.max(...this.recipes.map(r => r.id));
                     this.currentRecipeId = maxId + 1;
                 }
-                this.renderRecipes();
-                this.updateRecipeCount();
-                this.populateFilters();
-            })
-            .catch(() => {
-                this.recipes = [];
-                this.renderRecipes();
-                this.updateRecipeCount();
-                this.populateFilters();
-            });
-    }
 
-    saveRecipesToServer() {
-        fetch('save_recipes.php', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(this.recipes)
-        });
-    }
+                // 6. Save the merged result back to storage immediately
+                // This ensures the new recipes persist.
+                this.saveRecipesToServer();
+
+                // 7. Refresh UI
+                this.renderRecipes();
+                this.updateRecipeCount();
+                this.populateFilters();
+                this.renderCategoryGrid();
+
+            } catch (err) {
+                console.error('Failed to load recipes.json:', err);
+                // Fallback: If fetch fails, just show what we have in storage
+                if (userRecipes.length > 0) {
+                    this.recipes = userRecipes;
+                    this.renderRecipes();
+                    this.updateRecipeCount();
+                    this.populateFilters();
+                    this.renderCategoryGrid();
+                }
+            }
+        }
+
+	loadFromJsonFile() {
+		fetch('recipes.json')
+			.then(res => res.json())
+			.then(data => {
+				console.log('Loaded recipes from JSON:', data.length);
+				this.recipes = data;
+
+				// CRITICAL FIX: Set currentRecipeId to be higher than any existing ID
+				if (this.recipes.length > 0) {
+					const maxId = Math.max(...this.recipes.map(r => r.id));
+					this.currentRecipeId = maxId + 1;
+					console.log('Set currentRecipeId to:', this.currentRecipeId);
+				}				
+				
+				localStorage.setItem('recipes', JSON.stringify(data)); // ← Save to localStorage
+				this.renderRecipes();
+				this.updateRecipeCount();
+				this.populateFilters();
+				this.renderCategoryGrid();
+			})
+			.catch(err => {
+				console.error('Failed to load recipes:', err);
+			});
+	}
+
+saveRecipesToServer() {
+    // For mobile app, just save to localStorage
+    localStorage.setItem('recipes', JSON.stringify(this.recipes));
+    console.log('Recipes saved to localStorage');
+}
 
     setupEventListeners() {
         document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -376,7 +602,7 @@ class RecipeManager {
         document.getElementById('currentServings').addEventListener('input', (e) => this.setServings(parseInt(e.target.value)));
 		
 		// Add this somewhere in your initialization
-		document.getElementById('modalBackBtn').addEventListener('click', () => {
+	/*	document.getElementById('modalBackBtn').addEventListener('click', () => {
 			document.getElementById('recipeModal').classList.remove('active');
 		});		
 
@@ -384,7 +610,7 @@ class RecipeManager {
             modal.addEventListener('click', (e) => {
                 if (e.target === modal) this.closeModal();
             });
-        });
+        });*/
     }
 
     setupTabs() {
@@ -400,13 +626,34 @@ class RecipeManager {
         document.getElementById(tabName).classList.add('active');
     }
 
-    switchAddTab(tabName) {
-        document.querySelectorAll('.add-tab-btn').forEach(btn => btn.classList.remove('active'));
-        document.querySelectorAll('.add-tab-content').forEach(content => content.classList.remove('active'));
-        
-        document.querySelector(`[data-add-tab="${tabName}"]`).classList.add('active');
-        document.getElementById(tabName).classList.add('active');
+switchTab(tabName) {
+    // Old tab system - check if elements exist first
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    if (tabButtons.length > 0) {
+        // Old system exists, use it
+        tabButtons.forEach(btn => btn.classList.remove('active'));
+        tabContents.forEach(content => content.classList.remove('active'));
+
+        const targetBtn = document.querySelector(`[data-tab="${tabName}"]`);
+        const targetContent = document.getElementById(tabName);
+
+        if (targetBtn) targetBtn.classList.add('active');
+        if (targetContent) targetContent.classList.add('active');
+    } else {
+        // New system - switch to recipes view if trying to go to library
+        if (tabName === 'library') {
+            // Activate recipes view instead
+            document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+            document.getElementById('recipesView').classList.add('active');
+
+            document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+            const recipesNavItem = document.querySelector('.nav-item[data-view="recipesView"]');
+            if (recipesNavItem) recipesNavItem.classList.add('active');
+        }
     }
+}
 
     addIngredientRow() {
         const ingredientsList = document.getElementById('ingredientsList');
@@ -498,56 +745,109 @@ class RecipeManager {
         this.switchTab('library');
     }
 
-    scrapeRecipeFromUrl() {
-        const url = document.getElementById('recipeUrl').value.trim();
-        const statusEl = document.getElementById('urlStatus');
-        
-        if (!url) {
-            this.showStatus('Please enter a URL', 'error', statusEl);
-            return;
-        }
+	async scrapeRecipeFromUrl() {
+		const url = document.getElementById('recipeUrl').value.trim();
+		const statusEl = document.getElementById('urlStatus');
+		
+		console.log('scrapeRecipeFromUrl called, URL:', url);
+		
+		if (!url) {
+			this.showStatus('Please enter a URL', 'error', statusEl);
+			console.log('No URL provided, exiting');
+			return;
+		}
 
-        this.showStatus('Extracting recipe data...', 'info', statusEl);
-        
-        setTimeout(() => {
-            const mockRecipe = {
-                id: this.currentRecipeId++,
-                title: "Scraped Recipe from URL",
-                course: "Dinner",
-                category: "Main Course",
-                collections: ["URL Import"],
-                source: url,
-                servings: 4,
-                prepTime: "20 minutes",
-                cookTime: "30 minutes",
-                ingredients: [
-                    {quantity: 2, unit: "cup", ingredient: "sample ingredient"},
-                    {quantity: 1, unit: "tablespoon", ingredient: "sample spice"},
-                    {quantity: 1, unit: "pound", ingredient: "sample protein"}
-                ],
-                instructions: [
-                    "This is a mock recipe scraped from the URL.",
-                    "In a real implementation, this would parse the webpage.",
-                    "It would look for JSON-LD structured data or other recipe formats.",
-                    "For now, this demonstrates the functionality."
-                ],
-                notes: "This recipe was imported from: " + url,
-                nutrition: {},
-                images: []
-            };
-            
-            this.recipes.push(mockRecipe);
-            this.saveRecipesToServer();
-            this.renderRecipes();
-            this.updateRecipeCount();
-            this.populateFilters();
-            
-            this.showStatus('Recipe imported successfully!', 'success', statusEl);
-            document.getElementById('recipeUrl').value = '';
-            
-            setTimeout(() => this.switchTab('library'), 1500);
-        }, 2000);
-    }
+		this.showStatus('Extracting recipe data...', 'info', statusEl);
+		console.log('Calling Cloud Run API...');
+		
+		try {
+			// YOUR CLOUD RUN URL
+			const apiUrl = 'https://recipe-scraper-45718618018.us-central1.run.app/scrape';
+			
+			const response = await fetch(`${apiUrl}?url=${encodeURIComponent(url)}`);
+			const data = await response.json();
+			
+			console.log('API response:', JSON.stringify(data, null, 2));
+			console.log('Recipe title from API:', data.title);
+			console.log('Recipe success flag:', data.success);
+			
+			if (!data.success) {
+				throw new Error(data.message || 'Failed to scrape recipe');
+			}
+			
+			// Parse ingredients (recipe-scrapers returns them as strings)
+			const parsedIngredients = data.ingredients.map(ing => {
+				// Try to parse "2 cups flour" format
+				const match = ing.match(/^([\d.\/\s]+)\s+(\w+)\s+(.+)$/);
+				if (match) {
+					return {
+						quantity: parseFloat(match[1].trim()),
+						unit: match[2],
+						ingredient: match[3]
+					};
+				}
+				// Fallback: just use the string as-is
+				return {
+					quantity: 1,
+					unit: '',
+					ingredient: ing
+				};
+			});
+			
+			const newRecipe = {
+				id: this.currentRecipeId++,
+				title: data.title,
+				course: 'Dinner', // Default, user can edit later
+				category: data.category || 'Main Course',
+				collections: ['URL Import'],
+				source: url,
+				servings: parseInt(data.servings) || 4,
+				prepTime: data.prep_time || 'Not specified',
+				cookTime: data.cook_time || 'Not specified',
+				ingredients: parsedIngredients,
+				instructions: data.instructions_list || [],
+				notes: data.description || '',
+				nutrition: {},
+				images: data.image ? [data.image] : []
+			};
+			
+			console.log('Created recipe from API data:', JSON.stringify(newRecipe, null, 2));
+			
+			this.recipes.push(newRecipe);
+			this.saveRecipesToServer();
+			this.renderRecipes();
+			this.updateRecipeCount();
+			this.populateFilters();
+			
+			this.showStatus('Recipe imported successfully!', 'success', statusEl);
+			document.getElementById('recipeUrl').value = '';
+			
+			setTimeout(() => {
+				console.log('Switching to recipes view...');
+				// Switch to recipes view
+				document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+				document.getElementById('recipesView').classList.add('active');
+				
+				document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+				const recipesNav = document.querySelector('.nav-item[data-view="recipesView"]');
+				if (recipesNav) recipesNav.classList.add('active');
+				
+				// Reset filters
+				const courseFilter = document.getElementById('courseFilter');
+				const categoryFilter = document.getElementById('categoryFilter');
+				if (courseFilter) courseFilter.value = '';
+				if (categoryFilter) categoryFilter.value = '';
+				
+				this.renderRecipes();
+				this.renderCategoryGrid();
+				console.log('View switched to recipes, filters reset');
+			}, 500);
+			
+		} catch (error) {
+			console.error('Scraping error:', error);
+			this.showStatus('Failed to import recipe: ' + error.message, 'error', statusEl);
+		}
+	}
 
     handleDragOver(e) {
         e.preventDefault();
@@ -575,8 +875,10 @@ class RecipeManager {
         const statusEl = document.getElementById('fileStatus');
         const fileName = file.name.toLowerCase();
         
-        if (!fileName.endsWith('.txt') && !fileName.endsWith('.html') && !fileName.endsWith('.htm')) {
-            this.showStatus('Please select a .txt or .html file', 'error', statusEl);
+        console.log('Processing file:', fileName);
+        
+        if (!fileName.endsWith('.txt') && !fileName.endsWith('.html') && !fileName.endsWith('.htm') && !fileName.endsWith('.json')) {
+            this.showStatus('Please select a .txt, .html, or .json file', 'error', statusEl);
             return;
         }
 
@@ -588,7 +890,11 @@ class RecipeManager {
             setTimeout(() => {
                 try {
                     let recipes;
-                    if (fileName.endsWith('.html') || fileName.endsWith('.htm')) {
+                    if (fileName.endsWith('.json')) {
+                        this.updateProgress(50, 'Parsing JSON format...');
+                        recipes = this.parseRecipeJSON(e.target.result);
+                        console.log('Parsed JSON recipes:', recipes);
+                    } else if (fileName.endsWith('.html') || fileName.endsWith('.htm')) {
                         this.updateProgress(50, 'Parsing HTML format...');
                         recipes = this.parseRecipeManagerHTML(e.target.result);
                     } else {
@@ -596,22 +902,50 @@ class RecipeManager {
                         recipes = this.parseRecipeManagerFile(e.target.result);
                     }
                     
-                    this.updateProgress(75, 'Processing recipes...');
+                    console.log('Total recipes parsed:', recipes.length);
                     
+                    this.updateProgress(75, 'Importing recipes...');
+                    
+                    // Assign IDs and import directly
                     recipes.forEach(recipe => {
                         recipe.id = this.currentRecipeId++;
+                        console.log('Importing recipe:', recipe.title);
                     });
                     
-                    this.pendingImportRecipes = recipes;
+                    // Import directly without preview
+                    this.recipes.push(...recipes);
+                    this.saveRecipesToServer();
+                    this.renderRecipes();
+                    this.updateRecipeCount();
+                    this.populateFilters();
+                    
                     this.updateProgress(100, 'Complete!');
                     
                     setTimeout(() => {
                         this.showProgress(false);
-                        this.showImportPreview(recipes);
-                        this.showStatus(`Found ${recipes.length} recipe(s) ready to import`, 'success', statusEl);
+                        this.showStatus(`Successfully imported ${recipes.length} recipe(s)!`, 'success', statusEl);
+                        
+                        // Switch to recipes view
+                        setTimeout(() => {
+                            document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+                            document.getElementById('recipesView').classList.add('active');
+                            
+                            document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+                            const recipesNav = document.querySelector('.nav-item[data-view="recipesView"]');
+                            if (recipesNav) recipesNav.classList.add('active');
+                            
+                            // Reset filters so imported recipe shows
+                            const courseFilter = document.getElementById('courseFilter');
+                            const categoryFilter = document.getElementById('categoryFilter');
+                            if (courseFilter) courseFilter.value = '';
+                            if (categoryFilter) categoryFilter.value = '';
+                            
+                            this.renderRecipes();
+                        }, 500);
                     }, 500);
                     
                 } catch (error) {
+                    console.error('File parsing error:', error);
                     this.showProgress(false);
                     this.showStatus('Error parsing file: ' + error.message, 'error', statusEl);
                 }
@@ -654,6 +988,100 @@ class RecipeManager {
         });
         
         return recipes;
+    }
+
+    parseRecipeJSON(jsonContent) {
+        const data = JSON.parse(jsonContent);
+        
+        // Handle both single recipe object and array of recipes
+        const recipes = Array.isArray(data) ? data : [data];
+        
+        // Validate and normalize each recipe
+        return recipes.map(recipe => {
+            // Determine if this is Schema.org format or simple format
+            const isSchemaOrg = recipe['@type'] === 'Recipe';
+            
+            // Extract title
+            const title = recipe.title || recipe.name;
+            if (!title) {
+                throw new Error('Recipe missing title/name');
+            }
+            
+            // Extract ingredients
+            let ingredients = [];
+            if (isSchemaOrg && recipe.recipeIngredient) {
+                // Schema.org format: array of strings
+                ingredients = recipe.recipeIngredient.map(ing => {
+                    // Try to parse "1 cup flour" format
+                    const match = ing.match(/^([\d.\/\s]+)\s+(\w+)\s+(.+)$/);
+                    if (match) {
+                        return {
+                            quantity: parseFloat(match[1].trim()) || 1,
+                            unit: match[2],
+                            ingredient: match[3]
+                        };
+                    }
+                    return {
+                        quantity: 1,
+                        unit: '',
+                        ingredient: ing
+                    };
+                });
+            } else if (Array.isArray(recipe.ingredients)) {
+                // Simple format: already structured
+                ingredients = recipe.ingredients;
+            }
+            
+            // Extract instructions
+            let instructions = [];
+            if (isSchemaOrg && recipe.recipeInstructions) {
+                // Schema.org format: array of objects with text property
+                instructions = recipe.recipeInstructions.map(inst => {
+                    if (typeof inst === 'string') return inst;
+                    if (inst.text) return inst.text;
+                    return JSON.stringify(inst);
+                });
+            } else if (Array.isArray(recipe.instructions)) {
+                instructions = recipe.instructions;
+            } else if (Array.isArray(recipe.instructions_list)) {
+                instructions = recipe.instructions_list;
+            }
+            
+            // Extract servings
+            let servings = 4; // default
+            if (recipe.servings) {
+                servings = parseInt(recipe.servings);
+            } else if (recipe.recipeYield) {
+                // Parse "4 servings" or just "4"
+                const match = String(recipe.recipeYield).match(/\d+/);
+                servings = match ? parseInt(match[0]) : 4;
+            }
+            
+            // Extract times
+            const prepTime = recipe.prepTime || recipe.prep_time || 'Not specified';
+            const cookTime = recipe.cookTime || recipe.cook_time || 'Not specified';
+            
+            // Extract category
+            const category = recipe.category || recipe.recipeCategory || 'Main Course';
+            
+            // Normalize the recipe structure to match our format
+            return {
+                title: title,
+                course: recipe.course || 'Dinner',
+                category: category,
+                collections: recipe.collections || [],
+                source: recipe.source || recipe.url || '',
+                servings: servings,
+                prepTime: prepTime,
+                cookTime: cookTime,
+                ingredients: ingredients,
+                instructions: instructions,
+                notes: recipe.notes || recipe.description || '',
+                nutrition: recipe.nutrition || recipe.nutrients || {},
+                images: Array.isArray(recipe.images) ? recipe.images : 
+                        recipe.image ? [recipe.image] : []
+            };
+        });
     }
 
     extractTitle(recipeEl) {
@@ -805,27 +1233,48 @@ class RecipeManager {
         return duration;
     }
 
-    formatTime(isoTime) {
-        // Handle PT0S or missing times
-        if (!isoTime || isoTime === 'PT0S' || isoTime === 'PT0M' || isoTime === '') {
-            return 'Not specified';
-        }
+	formatTime(isoTime) {
+		// Handle null, undefined, or empty
+		if (!isoTime || isoTime === '') {
+			return 'Not specified';
+		}
+		
+		// If it's already a plain string like "30 minutes", return it
+		if (typeof isoTime === 'string' && !isoTime.startsWith('PT')) {
+			return isoTime;
+		}
+		
+		// If it's a number, assume it's minutes
+		if (typeof isoTime === 'number') {
+			if (isoTime === 0) return 'Not specified';
+			const hours = Math.floor(isoTime / 60);
+			const minutes = isoTime % 60;
+			const parts = [];
+			if (hours > 0) parts.push(`${hours}h`);
+			if (minutes > 0) parts.push(`${minutes}m`);
+			return parts.length > 0 ? parts.join(' ') : 'Not specified';
+		}
+		
+		// Handle PT0S or PT0M
+		if (isoTime === 'PT0S' || isoTime === 'PT0M') {
+			return 'Not specified';
+		}
 
-        // Parse ISO 8601 duration format (PT15M, PT1H30M, etc.)
-        const match = isoTime.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-        if (!match) return isoTime;
+		// Parse ISO 8601 duration format (PT15M, PT1H30M, etc.)
+		const match = isoTime.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+		if (!match) return isoTime;
 
-        const hours = match[1] ? parseInt(match[1]) : 0;
-        const minutes = match[2] ? parseInt(match[2]) : 0;
-        const seconds = match[3] ? parseInt(match[3]) : 0;
+		const hours = match[1] ? parseInt(match[1]) : 0;
+		const minutes = match[2] ? parseInt(match[2]) : 0;
+		const seconds = match[3] ? parseInt(match[3]) : 0;
 
-        const parts = [];
-        if (hours > 0) parts.push(`${hours}h`);
-        if (minutes > 0) parts.push(`${minutes}m`);
-        if (seconds > 0 && hours === 0) parts.push(`${seconds}s`);
+		const parts = [];
+		if (hours > 0) parts.push(`${hours}h`);
+		if (minutes > 0) parts.push(`${minutes}m`);
+		if (seconds > 0 && hours === 0) parts.push(`${seconds}s`);
 
-        return parts.length > 0 ? parts.join(' ') : 'Not specified';
-    }    
+		return parts.length > 0 ? parts.join(' ') : 'Not specified';
+	}
 
     parseIngredientText(text) {
         const match = text.match(/^(\d+(?:\/\d+)?(?:\.\d+)?)\s+(\w+)\s+(.+)$/);
@@ -937,6 +1386,11 @@ class RecipeManager {
 
     showProgress(show) {
         const progressEl = document.getElementById('importProgress');
+        if (!progressEl) {
+            console.warn('importProgress element not found');
+            return;
+        }
+        
         if (show) {
             progressEl.classList.remove('hidden');
         } else {
@@ -945,25 +1399,57 @@ class RecipeManager {
     }
 
     updateProgress(percent, text) {
-        document.getElementById('progressFill').style.width = `${percent}%`;
-        document.getElementById('progressText').textContent = text;
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        
+        if (progressFill) {
+            progressFill.style.width = `${percent}%`;
+        }
+        if (progressText) {
+            progressText.textContent = text;
+        }
     }
 
     showImportPreview(recipes) {
+        console.log('showImportPreview called with', recipes.length, 'recipes');
+        
         const previewEl = document.getElementById('importPreview');
         const contentEl = document.getElementById('previewContent');
+        
+        console.log('Preview element:', previewEl);
+        console.log('Content element:', contentEl);
+        
+        if (!previewEl || !contentEl) {
+            console.error('Preview elements not found!');
+            return;
+        }
         
         contentEl.innerHTML = recipes.map(recipe => `
             <div class="preview-recipe">
                 <h5>${recipe.title}</h5>
-                <div class="preview-recipe-meta">
+                <div class="preview-preview-meta">
                     ${recipe.course} • ${recipe.category} • ${recipe.servings} servings • ${recipe.ingredients.length} ingredients
                     ${recipe.nutrition.calories ? `• ${recipe.nutrition.calories} cal` : ''}
                 </div>
             </div>
         `).join('');
         
-        previewEl.classList.remove('hidden');
+        console.log('Showing preview modal...');
+        
+        // Force display with aggressive styling
+        previewEl.style.display = 'flex';
+        previewEl.style.position = 'fixed';
+        previewEl.style.top = '0';
+        previewEl.style.left = '0';
+        previewEl.style.right = '0';
+        previewEl.style.bottom = '0';
+        previewEl.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+        previewEl.style.zIndex = '9999';
+        previewEl.style.alignItems = 'center';
+        previewEl.style.justifyContent = 'center';
+        
+        console.log('Modal display style:', previewEl.style.display);
+        console.log('Modal z-index:', previewEl.style.zIndex);
     }
 
     confirmImport() {
@@ -975,171 +1461,106 @@ class RecipeManager {
         
         const count = this.pendingImportRecipes.length;
         this.pendingImportRecipes = [];
-        document.getElementById('importPreview').classList.add('hidden');
+        
+        const importPreview = document.getElementById('importPreview');
+        if (importPreview) {
+            importPreview.style.display = 'none'; // Hide using style
+        }
         
         this.showStatus(`Successfully imported ${count} recipe(s)!`, 'success');
-        setTimeout(() => this.switchTab('library'), 1500);
+        
+        // Switch to recipes view
+        setTimeout(() => {
+            document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+            document.getElementById('recipesView').classList.add('active');
+            
+            document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+            const recipesNav = document.querySelector('.nav-item[data-view="recipesView"]');
+            if (recipesNav) recipesNav.classList.add('active');
+            
+            this.renderRecipes();
+        }, 500);
     }
 
     cancelImport() {
         this.pendingImportRecipes = [];
-        document.getElementById('importPreview').classList.add('hidden');
+        
+        const importPreview = document.getElementById('importPreview');
+        if (importPreview) {
+            importPreview.style.display = 'none'; // Hide using style
+        }
+        
         this.showStatus('Import cancelled', 'info');
     }
 	
-    renderRecipes() {
-        const recipeGrid = document.getElementById('recipeGrid');
-        const recipes = this.getFilteredRecipes();
+	renderRecipes() {
+		console.log('renderRecipes() called, recipes count:', this.recipes.length);
+		const recipeGrid = document.getElementById('recipeGrid');
+		console.log('recipeGrid element:', recipeGrid);
+		const recipes = this.getFilteredRecipes();
+		console.log('Filtered recipes count:', recipes.length);
+		
+		if (recipes.length === 0) {
+			recipeGrid.innerHTML = '<p style="padding: 2rem; text-align: center; color: var(--text-secondary);">No recipes found</p>';
+			return;
+		}
 
-        if (recipes.length === 0) {
-            recipeGrid.innerHTML = '<p style="padding: 2rem; text-align: center; color: var(--text-secondary);">No recipes found</p>';
-            return;
-        }
+		// Sort recipes alphabetically by title
+		const sortedRecipes = recipes.sort((a, b) => {
+			return a.title.localeCompare(b.title);
+		});
 
-        recipeGrid.innerHTML = recipes.map(recipe => {
-            const imageUrl = recipe.images && recipe.images.length > 0 ? recipe.images[0] : '';
-            const prepTime = this.formatTime(recipe.prepTime);
-            const cookTime = this.formatTime(recipe.cookTime);
+		recipeGrid.innerHTML = sortedRecipes.map(recipe => {
+			const imageUrl = recipe.images && recipe.images.length > 0 ? recipe.images[0] : '';
+			const prepTime = this.formatTime(recipe.prepTime);
+			const cookTime = this.formatTime(recipe.cookTime);
 
-            return `
-                <div class="recipe-card" onclick="recipeManager.openRecipeModal(${recipe.id})">
-                    ${imageUrl ? 
-                        `<img src="${imageUrl}" alt="${recipe.title}" class="recipe-card-image">` :
-                        `<div class="recipe-card-image" style="background: linear-gradient(135deg, var(--primary-light) 0%, var(--primary) 100%); display: flex; align-items: center; justify-content: center; color: white; font-size: 2rem;">🍽️</div>`
-                    }
-                    <div class="recipe-card-content">
-                        <div>
-                            <h3 class="recipe-card-title">${recipe.title}</h3>
-                            <div class="recipe-card-tags">
-                                <span class="recipe-tag">${recipe.course}</span>
-                                <span class="recipe-tag">${recipe.category}</span>
-                            </div>
-                        </div>
-                        <div class="recipe-card-meta">
-                            ${prepTime !== 'Not specified' ? `<span>⏱️ ${prepTime}</span>` : ''}
-                            ${cookTime !== 'Not specified' ? `<span>🔥 ${cookTime}</span>` : ''}
-                            <span>🍽️ ${recipe.servings} servings</span>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }	
-
-    /*renderRecipes() {
-        const grid = document.getElementById('recipeGrid');
-        const filteredRecipes = this.getFilteredRecipes();
-        
-        if (filteredRecipes.length === 0) {
-            grid.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-state-icon">
-                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                            <polyline points="14 2 14 8 20 8"></polyline>
-                            <line x1="16" y1="13" x2="8" y2="13"></line>
-                            <line x1="16" y1="17" x2="8" y2="17"></line>
-                        </svg>
-                    </div>
-                    <h3>No recipes found</h3>
-                    <p>Try adjusting your search or filters, or add a new recipe!</p>
-                </div>
-            `;
-            return;
-        }
-
-        grid.innerHTML = filteredRecipes.map(recipe => `
-            <div class="recipe-card" onclick="recipeManager.openRecipeModal(${recipe.id})">
-                <div class="recipe-card-header">
-                    <h3 class="recipe-card-title">${recipe.title}</h3>
-                    <div class="recipe-card-tags">
-                        <span class="recipe-tag recipe-tag--course">${recipe.course}</span>
-                        <span class="recipe-tag recipe-tag--category">${recipe.category}</span>
-                    </div>
-                </div>
-                <div class="recipe-card-meta">
-                    <span>🍽️ ${recipe.servings} servings</span>
-                    ${recipe.prepTime && recipe.prepTime !== 'PT0S' ? `<span>⏱️ ${this.formatTime(recipe.prepTime)}</span>` : ''}
-                    ${recipe.cookTime && recipe.cookTime !== 'PT0S' ? `<span>🔥 ${this.formatTime(recipe.cookTime)}</span>` : ''}
-                    ${recipe.nutrition.calories ? `<span>📊 ${recipe.nutrition.calories} cal</span>` : ''}
-                </div>
-                ${recipe.nutrition.calories ? `
-                    <div class="recipe-card-nutrition">
-                        ${recipe.nutrition.calories} cal • ${recipe.nutrition.protein || '0g'} protein • ${recipe.nutrition.totalCarbs || '0g'} carbs
-                    </div>
-                ` : ''}
-                <div class="recipe-card-actions" onclick="event.stopPropagation()">
-                    <button class="btn btn--primary" onclick="recipeManager.openRecipeModal(${recipe.id})">View</button>
-                    <button class="btn btn--secondary" onclick="recipeManager.deleteRecipe(${recipe.id})">Delete</button>
-                </div>
-            </div>
-        `).join('');
-    }*/
-
-/*     getFilteredRecipes() {
-        let filtered = [...this.recipes];
-        
-        const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
-        if (searchTerm) {
-            filtered = filtered.filter(recipe => 
-                recipe.title.toLowerCase().includes(searchTerm) ||
-                recipe.course.toLowerCase().includes(searchTerm) ||
-                recipe.category.toLowerCase().includes(searchTerm) ||
-                recipe.ingredients.some(ing => ing.ingredient.toLowerCase().includes(searchTerm)) ||
-                recipe.collections.some(col => col.toLowerCase().includes(searchTerm))
-            );
-        }
-        
-        const courseFilter = document.getElementById('courseFilter').value;
-        if (courseFilter && courseFilter !== "") {
-            filtered = filtered.filter(recipe => recipe.course === courseFilter);
-        }
-        
-        const categoryFilter = document.getElementById('categoryFilter').value;
-        if (categoryFilter && categoryFilter !== "") {
-            filtered = filtered.filter(recipe => recipe.category === categoryFilter);
-        }
-        
-        const sortBy = document.getElementById('sortBy').value;
-        filtered.sort((a, b) => {
-            switch (sortBy) {
-                case 'name':
-                    return a.title.localeCompare(b.title);
-                case 'category':
-                    return a.category.localeCompare(b.category);
-                case 'course':
-                    return a.course.localeCompare(b.course);
-                case 'servings':
-                    return a.servings - b.servings;
-                default:
-                    return 0;
-            }
-        });
-        
-        return filtered;
-    } */
+			return `
+				<div class="recipe-card" onclick="recipeManager.openRecipeModal(${recipe.id})">
+					${imageUrl ? 
+						`<img src="${imageUrl}" alt="${recipe.title}" class="recipe-card-image">` :
+						`<div class="recipe-card-image" style="background: linear-gradient(135deg, var(--primary-light) 0%, var(--primary) 100%); display: flex; align-items: center; justify-content: center; color: white; font-size: 2rem;">🍽️</div>`
+					}
+					<div class="recipe-card-content">
+						<div>
+							<h3 class="recipe-card-title">${recipe.title}</h3>
+							<div class="recipe-card-tags">
+								<span class="recipe-tag">${recipe.course}</span>
+								<span class="recipe-tag">${recipe.category}</span>
+							</div>
+						</div>
+						<div class="recipe-card-meta">
+							${prepTime !== 'Not specified' ? `<span>⏱️ ${prepTime}</span>` : ''}
+							${cookTime !== 'Not specified' ? `<span>🔥 ${cookTime}</span>` : ''}
+							<span>🍽️ ${recipe.servings} servings</span>
+						</div>
+					</div>
+				</div>
+			`;
+		}).join('');
+	}
 	
-getFilteredRecipes() {
-    const courseFilterEl = document.getElementById('courseFilter');
-    const categoryFilterEl = document.getElementById('categoryFilter');
-    const searchInputEl = document.getElementById('searchInput');
-    
-    const courseFilter = courseFilterEl ? courseFilterEl.value : '';
-    const categoryFilter = categoryFilterEl ? categoryFilterEl.value : '';
-    const searchTerm = searchInputEl ? searchInputEl.value.toLowerCase() : '';
-    
-    return this.recipes.filter(recipe => {
-        const matchesCourse = !courseFilter || recipe.course === courseFilter;
-        const matchesCategory = !categoryFilter || recipe.category === categoryFilter;
-        const matchesSearch = !searchTerm || 
-            recipe.title.toLowerCase().includes(searchTerm) ||
-            recipe.ingredients.some(ing => ing.ingredient.toLowerCase().includes(searchTerm)) ||
-            recipe.category.toLowerCase().includes(searchTerm) ||
-            recipe.course.toLowerCase().includes(searchTerm);
+    getFilteredRecipes() {
+        const courseFilterEl = document.getElementById('courseFilter');
+        const categoryFilterEl = document.getElementById('categoryFilter');
+        const searchInputEl = document.getElementById('searchInput');
         
-        return matchesCourse && matchesCategory && matchesSearch;
-    });
-}	
+        const courseFilter = courseFilterEl ? courseFilterEl.value : '';
+        const categoryFilter = categoryFilterEl ? categoryFilterEl.value : '';
+        const searchTerm = searchInputEl ? searchInputEl.value.toLowerCase() : '';
+        
+        return this.recipes.filter(recipe => {
+            const matchesCourse = !courseFilter || recipe.course === courseFilter;
+            const matchesCategory = !categoryFilter || recipe.category === categoryFilter;
+            const matchesSearch = !searchTerm || 
+                recipe.title.toLowerCase().includes(searchTerm) ||
+                recipe.ingredients.some(ing => ing.ingredient.toLowerCase().includes(searchTerm)) ||
+                recipe.category.toLowerCase().includes(searchTerm) ||
+                recipe.course.toLowerCase().includes(searchTerm);
+            
+            return matchesCourse && matchesCategory && matchesSearch;
+        });
+    }	
 
     filterRecipes() {
         this.renderRecipes();
@@ -1178,6 +1599,25 @@ getFilteredRecipes() {
 openRecipeModal(recipeId) {
     const recipe = this.recipes.find(r => r.id === recipeId);
     if (!recipe) return;
+
+    const modal = document.getElementById('recipeModal');
+    
+    // 1. Ensure it's rendered in the DOM first
+    //modal.style.display = 'none';
+    modal.style.display = 'block';
+    modal.style.zIndex = '2000'; // Force it to the absolute top
+    modal.classList.remove('active');
+
+    modal.offsetHeight;
+
+    // 2. Use requestAnimationFrame to ensure the 'display: block' has been 
+    // processed by the browser before starting the slide-in animation
+    requestAnimationFrame(() => {
+        modal.style.transition = '';
+        modal.classList.add('active');
+
+    });   
+
     this.currentRecipe = recipe;
     this.currentScaledServings = recipe.servings;
     
@@ -1231,7 +1671,10 @@ openRecipeModal(recipeId) {
     }
     
     // Show modal
-    document.getElementById('recipeModal').classList.add('active');
+    //document.getElementById('recipeModal').classList.add('active');
+
+    // TRIGGER LOCK HERE
+    this.requestWakeLock();
 }
 
     editRecipe(recipeId) {
@@ -1368,11 +1811,12 @@ saveEditedRecipe(e) {
     this.saveRecipesToServer();
     this.renderRecipes();
     this.updateRecipeCount();
+    this.renderCategoryGrid();
 
     // Close modal
-    document.getElementById('editModal').classList.add('hidden');
+    this.closeModal();
 
-    alert('Recipe updated successfully!');
+    this.showStatus('Recipe updated successfully!', 'success');
 }
 
 
@@ -1531,11 +1975,51 @@ saveEditedRecipe(e) {
         alert('Edit functionality would open a form to modify the current recipe. For this demo, please use the manual entry form to create a new recipe.');
     }
 
-    closeModal() {
-        document.querySelectorAll('.modal').forEach(modal => {
-            modal.classList.add('hidden');
-        });
+/* closeModal() {
+    this.releaseWakeLock();
+
+    const recipeModal = document.getElementById('recipeModal');
+    if (recipeModal) {
+        // 1. Remove the active class immediately
+        recipeModal.classList.remove('active');
+        
+        // 2. Snap it back to 100% instantly by disabling transition
+        recipeModal.style.transition = 'none';
+        
+        // 3. Hide it from the layout engine
+        recipeModal.style.display = 'none';
+        
+        // 4. Force a reflow so the "none" and "translateX(100%)" stick
+        recipeModal.offsetHeight;
+        
+        // 5. Re-enable transitions for the next open event
+        setTimeout(() => {
+            recipeModal.style.transition = '';
+        }, 50);
     }
+
+    // Handle other modals
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+    });
+} */
+
+closeModal() {
+    this.releaseWakeLock();
+
+    const recipeModal = document.getElementById('recipeModal');
+    if (recipeModal) {
+        // Just remove the active class - let CSS handle the animation
+        recipeModal.classList.remove('active');
+    }
+
+    // Handle other modals (edit modal, etc.) - but NOT recipeModal
+    document.querySelectorAll('.modal:not(#recipeModal)').forEach(modal => {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+    });
+}
 
     showStatus(message, type, element = null) {
         if (!element) {
@@ -1555,8 +2039,261 @@ saveEditedRecipe(e) {
             }, 3000);
         }
     }
-}
 
+    // Show share modal
+    showShareModal() {
+        console.log('showShareModal called');
+        const modal = document.getElementById('shareModal');
+        console.log('Share modal element:', modal);
+        
+        if (modal) {
+            console.log('Setting modal styles...');
+            modal.classList.remove('hidden');
+            modal.style.display = 'flex';
+            console.log('Modal should now be visible');
+        } else {
+            console.error('Share modal not found in DOM!');
+        }
+    }
+
+    // Close share modal
+    closeShareModal() {
+        const modal = document.getElementById('shareModal');
+        if (modal) {
+            // 1. Remove active/visible class for animation
+            modal.classList.add('hidden');
+            
+            // 2. Clear display after the animation finishes
+            setTimeout(() => {
+                modal.style.display = 'none';
+            }, 250); 
+        }
+    }
+
+    // Share as Text
+    async shareAsText() {
+        const recipe = this.recipes.find(r => r.id === this.currentShareRecipeId);
+        if (!recipe) return;
+        
+        try {
+            //const { Share } = await import('@capacitor/share');
+            
+            // Format ingredients
+            const ingredientsList = recipe.ingredients
+                .map(ing => `• ${ing.quantity} ${ing.unit} ${ing.ingredient}`.trim())
+                .join('\n');
+            
+            // Format instructions
+            const instructionsList = recipe.instructions
+                .map((inst, i) => `${i + 1}. ${inst}`)
+                .join('\n\n');
+            
+            // Create shareable text
+            const shareText = `
+    ${recipe.title}
+
+    ${recipe.servings} servings | Prep: ${recipe.prepTime} | Cook: ${recipe.cookTime}
+    ${recipe.course} • ${recipe.category}
+
+    INGREDIENTS:
+    ${ingredientsList}
+
+    INSTRUCTIONS:
+    ${instructionsList}
+
+    ${recipe.notes ? '\nNOTES:\n' + recipe.notes : ''}
+
+    Shared from Recipe Manager Pro
+            `.trim();
+            
+            await Capacitor.Plugins.Share.share({
+                title: recipe.title,
+                text: shareText,
+                dialogTitle: 'Share Recipe'
+            });
+            
+            this.closeShareModal();
+        } catch (error) {
+            console.error('Error sharing as text:', error);
+            alert('Failed to share recipe. Please try again.');
+        }
+    }
+
+    // Share as PDF
+    async shareAsPDF() {
+        const recipe = this.recipes.find(r => r.id === this.currentShareRecipeId);
+        if (!recipe) return;
+        
+        try {
+            const { jsPDF } = window.jspdf;
+            /*const { Share } = await import('@capacitor/share');
+            const { Filesystem, Directory } = await import('@capacitor/filesystem');*/
+            
+            // Create PDF
+            const doc = new jsPDF();
+            let y = 20;
+            const leftMargin = 20;
+            const rightMargin = 190;
+            const lineHeight = 6;
+            
+            // Title
+            doc.setFontSize(22);
+            doc.setFont(undefined, 'bold');
+            const titleLines = doc.splitTextToSize(recipe.title, rightMargin - leftMargin);
+            titleLines.forEach(line => {
+                doc.text(line, leftMargin, y);
+                y += 10;
+            });
+            y += 5;
+            
+            // Meta info
+            doc.setFontSize(11);
+            doc.setFont(undefined, 'normal');
+            doc.setTextColor(100, 100, 100);
+            doc.text(`${recipe.servings} servings | Prep: ${recipe.prepTime} | Cook: ${recipe.cookTime}`, leftMargin, y);
+            y += lineHeight;
+            doc.text(`${recipe.course} • ${recipe.category}`, leftMargin, y);
+            y += 12;
+            
+            doc.setTextColor(0, 0, 0);
+            
+            // Ingredients section
+            doc.setFontSize(16);
+            doc.setFont(undefined, 'bold');
+            doc.text('Ingredients', leftMargin, y);
+            y += 8;
+            
+            doc.setFontSize(11);
+            doc.setFont(undefined, 'normal');
+            recipe.ingredients.forEach(ing => {
+                const line = `• ${ing.quantity} ${ing.unit} ${ing.ingredient}`.trim();
+                const textLines = doc.splitTextToSize(line, rightMargin - leftMargin - 5);
+                
+                textLines.forEach(textLine => {
+                    if (y > 270) {
+                        doc.addPage();
+                        y = 20;
+                    }
+                    doc.text(textLine, leftMargin + 5, y);
+                    y += lineHeight;
+                });
+            });
+            
+            y += 8;
+            
+            // Instructions section
+            if (y > 240) {
+                doc.addPage();
+                y = 20;
+            }
+            
+            doc.setFontSize(16);
+            doc.setFont(undefined, 'bold');
+            doc.text('Instructions', leftMargin, y);
+            y += 8;
+            
+            doc.setFontSize(11);
+            doc.setFont(undefined, 'normal');
+            recipe.instructions.forEach((inst, i) => {
+                const stepText = `${i + 1}. ${inst}`;
+                const lines = doc.splitTextToSize(stepText, rightMargin - leftMargin - 5);
+                
+                lines.forEach((line, lineIndex) => {
+                    if (y > 270) {
+                        doc.addPage();
+                        y = 20;
+                    }
+                    doc.text(line, leftMargin + 5, y);
+                    y += lineHeight;
+                });
+                y += 3; // Extra space between steps
+            });
+            
+            // Notes (if any)
+            if (recipe.notes) {
+                y += 8;
+                
+                if (y > 240) {
+                    doc.addPage();
+                    y = 20;
+                }
+                
+                doc.setFontSize(16);
+                doc.setFont(undefined, 'bold');
+                doc.text('Notes', leftMargin, y);
+                y += 8;
+                
+                doc.setFontSize(11);
+                doc.setFont(undefined, 'normal');
+                const noteLines = doc.splitTextToSize(recipe.notes, rightMargin - leftMargin);
+                noteLines.forEach(line => {
+                    if (y > 270) {
+                        doc.addPage();
+                        y = 20;
+                    }
+                    doc.text(line, leftMargin, y);
+                    y += lineHeight;
+                });
+            }
+            
+            // Footer
+            const pageCount = doc.internal.getNumberOfPages();
+            for (let i = 1; i <= pageCount; i++) {
+                doc.setPage(i);
+                doc.setFontSize(9);
+                doc.setTextColor(150, 150, 150);
+                doc.text(`Shared from Recipe Manager Pro | Page ${i} of ${pageCount}`, leftMargin, 285);
+            }
+            
+            // Convert to base64
+            const pdfData = doc.output('datauristring').split(',')[1];
+            const fileName = `${recipe.title.replace(/[^a-z0-9]/gi, '_')}.pdf`;
+            
+            // Save to cache
+            const result = await Capacitor.Plugins.Filesystem.writeFile({
+                path: fileName,
+                data: pdfData,
+                directory: 'CACHE'
+            });
+            
+            // Share
+            await Capacitor.Plugins.Share.share({
+                title: recipe.title,
+                files: [result.uri],
+                dialogTitle: 'Share Recipe as PDF'
+            });
+            
+            this.closeShareModal();
+        } catch (error) {
+            console.error('Error sharing as PDF:', error);
+            alert('Failed to create PDF. Please try again.');
+        }
+    }
+
+    // Share as JSON
+    async shareAsJSON() {
+        const recipe = this.recipes.find(r => r.id === this.currentShareRecipeId);
+        if (!recipe) return;
+        
+        try {
+            // Create JSON text
+            const jsonData = JSON.stringify(recipe, null, 2);
+            
+            // Share as text (simpler, always works)
+            await Capacitor.Plugins.Share.share({
+                title: `${recipe.title} - Recipe File`,
+                text: jsonData,
+                dialogTitle: 'Share Recipe as JSON'
+            });
+            
+            this.closeShareModal();
+        } catch (error) {
+            console.error('Error sharing as JSON:', error);
+            alert('Failed to share recipe file: ' + error.message);
+        }
+    }
+
+}
 const recipeManager = new RecipeManager();
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1565,6 +2302,13 @@ document.addEventListener('DOMContentLoaded', () => {
         removeBtn.addEventListener('click', (e) => e.target.closest('.ingredient-row').remove());
     }
 });
+
+this.recipes.push(mockRecipe);
+console.log('Recipe added! Total recipes:', this.recipes.length);
+this.saveRecipesToServer();
+console.log('Recipes saved to localStorage');
+this.renderRecipes();
+console.log('Recipes rendered');
 
 document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Recipe Manager Pro</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
     <!-- Top Header -->
@@ -115,7 +116,7 @@
                 <!-- From File -->
                 <div id="fileTab" class="add-tab-content">
                     <div class="form-group">
-                        <label>Import from JSON file</label>
+                        <label>Import from file</label>
                         <div id="fileUploadArea" class="file-upload-area">
                             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -123,11 +124,39 @@
                                 <line x1="12" y1="3" x2="12" y2="15"></line>
                             </svg>
                             <p>Click to upload or drag and drop</p>
-                            <small>JSON files only</small>
+                            <small>HTML, TXT, or JSON files</small>
                         </div>
-                        <input type="file" id="fileInput" accept=".json" style="display: none;">
+                        <input type="file" id="fileInput" accept=".html,.htm,.txt,.json" style="display: none;">
+                        <div id="fileStatus" class="status-message"></div>
                     </div>
-                </div>
+                </div> 
+                <!-- From File -->
+                <div id="fileTab" class="add-tab-content">
+                    <div class="form-group">
+                        <label>Import from file</label>
+                        <div id="fileUploadArea" class="file-upload-area">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="17 8 12 3 7 8"></polyline>
+                                <line x1="12" y1="3" x2="12" y2="15"></line>
+                            </svg>
+                            <p>Click to upload or drag and drop</p>
+                            <small>HTML, TXT, or JSON files</small>
+                        </div>
+                        <input type="file" id="fileInput" accept=".html,.htm,.txt,.json" style="display: none;">
+                        
+                        <!-- ADD THIS PROGRESS BAR -->
+                        <div id="importProgress" class="hidden" style="margin-top: 1rem;">
+                            <div style="background: var(--bg-secondary); border-radius: 8px; overflow: hidden; height: 8px;">
+                                <div id="progressFill" style="background: var(--primary); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                            </div>
+                            <p id="progressText" style="text-align: center; margin-top: 0.5rem; color: var(--text-secondary); font-size: 0.875rem;"></p>
+                        </div>
+                        
+                        <div id="fileStatus" class="status-message"></div>
+                    </div>
+                </div>                                   
+            </div>
 
                 <!-- Manual Entry -->
                 <div id="manualTab" class="add-tab-content">
@@ -198,6 +227,15 @@
             <div class="modal-header-section">
                 <h2 id="modalRecipeTitle" class="modal-title"></h2>
                 <div class="modal-actions">
+                    <button id="shareRecipeBtn" class="icon-btn" aria-label="Share recipe">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="18" cy="5" r="3"></circle>
+                            <circle cx="6" cy="12" r="3"></circle>
+                            <circle cx="18" cy="19" r="3"></circle>
+                            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                        </svg>
+                    </button>                    
                     <button id="editRecipeBtn" class="icon-btn" title="Edit">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
@@ -359,6 +397,69 @@
             <span>Add</span>
         </button>
     </nav>
+
+    <!-- Import Preview Modal -->
+    <div id="importPreview" class="modal hidden">
+        <div class="modal-content" style="background: white; padding: 2rem; border-radius: 12px; max-width: 600px; width: 90%; max-height: 80vh; overflow: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.3);">
+            <div class="modal-header">
+                <h2>Preview Import</h2>
+                <button class="modal-close" onclick="recipeManager.cancelImport()">×</button>
+            </div>
+            <div id="previewContent" class="preview-content" style="max-height: 400px; overflow-y: auto; padding: 1rem;">
+                <!-- Recipe previews will be inserted here -->
+            </div>
+            <div class="form-actions" style="margin-top: 1rem;">
+                <button id="cancelImport" class="btn btn-secondary">Cancel</button>
+                <button id="confirmImport" class="btn btn-primary">Import Recipes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Share Options Modal -->
+    <div id="shareModal" class="share-modal hidden">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2>Share Recipe</h2>
+                <button class="modal-close" onclick="recipeManager.closeShareModal()">×</button>
+            </div>
+            <div class="share-options">
+                <button class="share-option-btn" onclick="recipeManager.shareAsText()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    <div>
+                        <strong>Share as Text</strong>
+                        <small>Send via messaging apps</small>
+                    </div>
+                </button>
+                
+                <button class="share-option-btn" onclick="recipeManager.shareAsPDF()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                        <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                    <div>
+                        <strong>Share as PDF</strong>
+                        <small>Professional document for printing</small>
+                    </div>
+                </button>
+                
+                <button class="share-option-btn" onclick="recipeManager.shareAsJSON()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                        <polyline points="13 2 13 9 20 9"></polyline>
+                    </svg>
+                    <div>
+                        <strong>Share as Recipe File</strong>
+                        <small>Import into other devices</small>
+                    </div>
+                </button>
+            </div>
+        </div>
+    </div>    
 
     <script src="app.js"></script>
 </body>

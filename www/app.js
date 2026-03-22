@@ -39,6 +39,32 @@ class RecipeManager {
 		this.initRedesign();
     }
 
+// --- WAKE LOCK (CAPACITOR PLUGIN) ---
+    async requestWakeLock() {
+        // Check if Capacitor and the plugin are available
+        if (typeof Capacitor !== 'undefined' && Capacitor.Plugins && Capacitor.Plugins.KeepAwake) {
+            try {
+                await Capacitor.Plugins.KeepAwake.keepAwake();
+                console.log('Device set to keep awake');
+            } catch (err) {
+                console.error('Failed to set keep awake:', err);
+            }
+        } else {
+            console.log('KeepAwake plugin not found (running in browser?)');
+        }
+    }
+
+    async releaseWakeLock() {
+        if (typeof Capacitor !== 'undefined' && Capacitor.Plugins && Capacitor.Plugins.KeepAwake) {
+            try {
+                await Capacitor.Plugins.KeepAwake.allowSleep();
+                console.log('Device allowed to sleep');
+            } catch (err) {
+                console.error('Failed to allow sleep:', err);
+            }
+        }
+    }
+
     init() {
         this.setupEventListeners();
         this.setupTabs();
@@ -55,57 +81,123 @@ class RecipeManager {
 		this.initModalActions();
 		this.loadRecipesFromServer();
 		this.initImportHandlers();
+        this.initBackButton();
     }
 	
-initImportHandlers() {
-    console.log('=== initImportHandlers called ===');
+    initBackButton() {
+        // Check if we are running in Capacitor context
+        if (typeof Capacitor !== 'undefined' && Capacitor.Plugins && Capacitor.Plugins.App) {
+            
+            Capacitor.Plugins.App.addListener('backButton', ({ canGoBack }) => {
+                console.log('Back button pressed');
+                
+                // 1. Priority: Close any open Modals
+                const openModal = document.querySelector('.modal.active');
+                if (openModal) {
+                    // If the recipe modal is open, or any other modal
+                    this.closeModal();
+                    // Also specifically ensure share modal is closed if it's separate
+                    this.closeShareModal(); 
+                    return; // Stop here, don't exit app
+                }
 
-    // URL scraping
-    const scrapeBtn = document.getElementById('scrapeUrl');
-    if (scrapeBtn) {
-        scrapeBtn.addEventListener('click', () => {
-            console.log('Scrape button clicked!');
-            this.scrapeRecipeFromUrl();
-        });
-        console.log('scrapeUrl listener attached');
+                // 2. Priority: Close Search Overlay if open
+                const searchOverlay = document.getElementById('searchOverlay');
+                if (searchOverlay && searchOverlay.classList.contains('active')) {
+                    searchOverlay.classList.remove('active');
+                    return;
+                }
+
+                // 3. Priority: Navigate Tabs (If not on "Home", go to Home)
+                const homeView = document.getElementById('homeView');
+                if (homeView && !homeView.classList.contains('active')) {
+                    // Manually click the "Home" nav button to trigger the switch
+                    const homeBtn = document.querySelector('.nav-item[data-view="homeView"]');
+                    if (homeBtn) homeBtn.click();
+                    return;
+                }
+
+                // 4. If none of the above, actually exit the app
+                Capacitor.Plugins.App.exitApp();
+            });
+        }
     }
 
-    // File upload
-    const fileUploadArea = document.getElementById('fileUploadArea');
-    const fileInput = document.getElementById('fileInput');
+    initImportHandlers() {
+        console.log('=== initImportHandlers called ===');
 
-    if (fileUploadArea && fileInput) {
-        fileUploadArea.addEventListener('click', () => fileInput.click());
-        fileUploadArea.addEventListener('dragover', (e) => this.handleDragOver(e));
-        fileUploadArea.addEventListener('drop', (e) => this.handleFileDrop(e));
-        fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
+        // URL scraping
+        const scrapeBtn = document.getElementById('scrapeUrl');
+        if (scrapeBtn) {
+            scrapeBtn.addEventListener('click', () => {
+                console.log('Scrape button clicked!');
+                this.scrapeRecipeFromUrl();
+            });
+            console.log('scrapeUrl listener attached');
+        }
+
+        // File upload
+        const fileUploadArea = document.getElementById('fileUploadArea');
+        const fileInput = document.getElementById('fileInput');
+
+        if (fileUploadArea && fileInput) {
+            fileUploadArea.addEventListener('click', () => fileInput.click());
+            fileUploadArea.addEventListener('dragover', (e) => this.handleDragOver(e));
+            fileUploadArea.addEventListener('drop', (e) => this.handleFileDrop(e));
+            fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
+        }
+
+        // Import confirmation (only if elements exist)
+        const confirmBtn = document.getElementById('confirmImport');
+        const cancelBtn = document.getElementById('cancelImport');
+        if (confirmBtn) confirmBtn.addEventListener('click', () => this.confirmImport());
+        if (cancelBtn) cancelBtn.addEventListener('click', () => this.cancelImport());
+
+        console.log('=== initImportHandlers complete ===');
     }
-
-    // Import confirmation (only if elements exist)
-    const confirmBtn = document.getElementById('confirmImport');
-    const cancelBtn = document.getElementById('cancelImport');
-    if (confirmBtn) confirmBtn.addEventListener('click', () => this.confirmImport());
-    if (cancelBtn) cancelBtn.addEventListener('click', () => this.cancelImport());
-
-    console.log('=== initImportHandlers complete ===');
-}
 
     initTheme() {
         const themeToggle = document.getElementById('themeToggle');
         const html = document.documentElement;
 
+        // 1. Load saved theme
         const currentTheme = localStorage.getItem('theme') || 'light';
         html.setAttribute('data-theme', currentTheme);
         this.updateThemeIcon(currentTheme);
+        
+        // 2. Set Initial Status Bar Style
+        this.updateStatusBarStyle(currentTheme);
 
         themeToggle.addEventListener('click', () => {
             const theme = html.getAttribute('data-theme');
             const newTheme = theme === 'light' ? 'dark' : 'light';
+            
             html.setAttribute('data-theme', newTheme);
             localStorage.setItem('theme', newTheme);
             this.updateThemeIcon(newTheme);
+            
+            // 3. Update Status Bar on Toggle
+            this.updateStatusBarStyle(newTheme);
         });
     }
+
+// Helper function to talk to Android
+updateStatusBarStyle(theme) {
+    // Only run if we are in the app (Capacitor exists)
+    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.StatusBar) {
+        const { StatusBar, Style } = window.Capacitor.Plugins;
+        
+        if (theme === 'dark') {
+            // Dark Mode = Dark Background = WE WANT LIGHT ICONS
+            StatusBar.setStyle({ style: 'DARK' }); 
+            StatusBar.setBackgroundColor({ color: '#1A1D23' }); // Matches your --bg-primary in dark mode
+        } else {
+            // Light Mode = Light Background = WE WANT DARK ICONS
+            StatusBar.setStyle({ style: 'LIGHT' });
+            StatusBar.setBackgroundColor({ color: '#FFFFFF' }); // Matches your --bg-primary in light mode
+        }
+    }
+}
 
     updateThemeIcon(theme) {
         const sunIcon = document.getElementById('sunIcon');
@@ -120,49 +212,37 @@ initImportHandlers() {
         }
     }
 	
-	initModalActions() {
-		// Edit button
-		document.getElementById('editRecipeBtn').addEventListener('click', () => {
-			const recipeId = document.getElementById('modalRecipeTitle').dataset.recipeId;
-			this.editRecipe(parseInt(recipeId));
-		});
-		
-		// Delete button
-		document.getElementById('deleteRecipeBtn').addEventListener('click', () => {
-			const recipeId = document.getElementById('modalRecipeTitle').dataset.recipeId;
-			if (confirm('Are you sure you want to delete this recipe?')) {
-				this.deleteRecipe(parseInt(recipeId));
-				document.getElementById('recipeModal').classList.remove('active');
-			}
-		});
-		
-		// Modal back button
-		document.getElementById('modalBackBtn').addEventListener('click', () => {
-			document.getElementById('recipeModal').classList.remove('active');
-		});
-		
-		// Edit modal close button (the × button)
-		document.querySelectorAll('[data-modal="editModal"]').forEach(btn => {
-			btn.addEventListener('click', () => {
-				document.getElementById('editModal').classList.remove('active');
-			});
-		});
+    initModalActions() {
+        // Edit button
+        document.getElementById('editRecipeBtn').addEventListener('click', () => {
+            const recipeId = document.getElementById('modalRecipeTitle').dataset.recipeId;
+            this.editRecipe(parseInt(recipeId));
+        });
         
+        // Delete button
+        document.getElementById('deleteRecipeBtn').addEventListener('click', () => {
+            const recipeId = document.getElementById('modalRecipeTitle').dataset.recipeId;
+            if (confirm('Are you sure you want to delete this recipe?')) {
+                this.deleteRecipe(parseInt(recipeId));
+                this.closeModal(); 
+            }
+        });
+        
+        // Modal back button - ONLY ONE LISTENER HERE
+        document.getElementById('modalBackBtn').addEventListener('click', () => {
+            this.closeModal();
+        });
+        
+        // Share button logic
         const shareBtn = document.getElementById('shareRecipeBtn');
-        console.log('Share button found:', shareBtn);
-
         if (shareBtn) {
             shareBtn.addEventListener('click', () => {
-                console.log('Share button clicked!');
                 const recipeId = document.getElementById('modalRecipeTitle').dataset.recipeId;
-                console.log('Recipe ID:', recipeId);
                 this.currentShareRecipeId = parseInt(recipeId);
                 this.showShareModal();
             });
-        } else {
-            console.error('Share button not found!');
-        }   
-	}	
+        }
+    }
 
     initBottomNav() {
         const navItems = document.querySelectorAll('.nav-item');
@@ -351,35 +431,100 @@ initImportHandlers() {
         });
     }	
 
-	loadRecipesFromServer() {
-		// Try localStorage first (for mobile app)
-		const stored = localStorage.getItem('recipes');
-		
-		if (stored) {
-			try {
-				this.recipes = JSON.parse(stored);
-				console.log('Loaded recipes from localStorage:', this.recipes.length);
-				
-				// CRITICAL FIX: Set currentRecipeId to be higher than any existing ID
-				if (this.recipes.length > 0) {
-					const maxId = Math.max(...this.recipes.map(r => r.id));
-					this.currentRecipeId = maxId + 1;
-					console.log('Set currentRecipeId to:', this.currentRecipeId);
-				}				
-				
-				this.renderRecipes();
-				this.updateRecipeCount();
-				this.populateFilters();
-				this.renderCategoryGrid(); // ← Make sure this is here
-			} catch (e) {
-				console.error('Error parsing stored recipes:', e);
-				this.loadFromJsonFile();
-			}
-		} else {
-			console.log('No localStorage, loading from JSON file');
-			this.loadFromJsonFile();
-		}
-	}
+    async loadRecipesFromServer() {
+            console.log('=== SMART LOAD: Starting ===');
+            
+            // 1. Load the User's "Saved" recipes (current state)
+            // We default to an empty array if nothing is saved yet.
+            let userRecipes = [];
+            const stored = localStorage.getItem('recipes');
+            if (stored) {
+                try {
+                    userRecipes = JSON.parse(stored);
+                    console.log(`Loaded ${userRecipes.length} user recipes from storage.`);
+                } catch (e) {
+                    console.error('Corrupt storage, starting fresh.', e);
+                    userRecipes = [];
+                }
+            }
+
+            // 2. Load the App's "Bundled" file (the potentially new version)
+            try {
+                const response = await fetch('recipes.json');
+                const systemRecipes = await response.json();
+                
+                console.log(`Loaded ${systemRecipes.length} system recipes from file.`);
+
+                // 3. THE SMART MERGE
+                // Goal: Keep ALL user recipes + Add NEW system recipes that aren't there.
+                
+                let addedCount = 0;
+                const combinedRecipes = [...userRecipes];
+
+                systemRecipes.forEach(sysRecipe => {
+                    // Check if we already have this system recipe
+                    // We check by ID (if it's a system recipe) OR by Title (to be safe)
+                    const alreadyExists = userRecipes.some(u => 
+                        (u.id === sysRecipe.id && u.isSystemRecipe) || 
+                        u.title === sysRecipe.title
+                    );
+
+                    if (!alreadyExists) {
+                        // It's new! Add it.
+                        // If we have user recipes, we need to ensure the ID doesn't clash.
+                        // If the ID is taken, we generate a new safe one.
+                        if (combinedRecipes.some(r => r.id === sysRecipe.id)) {
+                            const maxId = combinedRecipes.length > 0 
+                                ? Math.max(...combinedRecipes.map(r => r.id)) 
+                                : 0;
+                            sysRecipe.id = maxId + 1;
+                        }
+                        
+                        // Mark it as a system recipe so we know for next time
+                        sysRecipe.isSystemRecipe = true;
+                        
+                        combinedRecipes.push(sysRecipe);
+                        addedCount++;
+                    } else {
+                        // Optional: Update the existing system recipe with new data (fixes typos, etc.)
+                        // BUT only if the user hasn't heavily modified it. 
+                        // For now, we skip it to be safe.
+                    }
+                });
+
+                console.log(`Merge complete. Added ${addedCount} new system recipes.`);
+
+                // 4. Update Memory
+                this.recipes = combinedRecipes;
+
+                // 5. Update the Counter Logic
+                if (this.recipes.length > 0) {
+                    const maxId = Math.max(...this.recipes.map(r => r.id));
+                    this.currentRecipeId = maxId + 1;
+                }
+
+                // 6. Save the merged result back to storage immediately
+                // This ensures the new recipes persist.
+                this.saveRecipesToServer();
+
+                // 7. Refresh UI
+                this.renderRecipes();
+                this.updateRecipeCount();
+                this.populateFilters();
+                this.renderCategoryGrid();
+
+            } catch (err) {
+                console.error('Failed to load recipes.json:', err);
+                // Fallback: If fetch fails, just show what we have in storage
+                if (userRecipes.length > 0) {
+                    this.recipes = userRecipes;
+                    this.renderRecipes();
+                    this.updateRecipeCount();
+                    this.populateFilters();
+                    this.renderCategoryGrid();
+                }
+            }
+        }
 
 	loadFromJsonFile() {
 		fetch('recipes.json')
@@ -457,7 +602,7 @@ saveRecipesToServer() {
         document.getElementById('currentServings').addEventListener('input', (e) => this.setServings(parseInt(e.target.value)));
 		
 		// Add this somewhere in your initialization
-		document.getElementById('modalBackBtn').addEventListener('click', () => {
+	/*	document.getElementById('modalBackBtn').addEventListener('click', () => {
 			document.getElementById('recipeModal').classList.remove('active');
 		});		
 
@@ -465,7 +610,7 @@ saveRecipesToServer() {
             modal.addEventListener('click', (e) => {
                 if (e.target === modal) this.closeModal();
             });
-        });
+        });*/
     }
 
     setupTabs() {
@@ -1395,27 +1540,27 @@ switchTab(tabName) {
 		}).join('');
 	}
 	
-getFilteredRecipes() {
-    const courseFilterEl = document.getElementById('courseFilter');
-    const categoryFilterEl = document.getElementById('categoryFilter');
-    const searchInputEl = document.getElementById('searchInput');
-    
-    const courseFilter = courseFilterEl ? courseFilterEl.value : '';
-    const categoryFilter = categoryFilterEl ? categoryFilterEl.value : '';
-    const searchTerm = searchInputEl ? searchInputEl.value.toLowerCase() : '';
-    
-    return this.recipes.filter(recipe => {
-        const matchesCourse = !courseFilter || recipe.course === courseFilter;
-        const matchesCategory = !categoryFilter || recipe.category === categoryFilter;
-        const matchesSearch = !searchTerm || 
-            recipe.title.toLowerCase().includes(searchTerm) ||
-            recipe.ingredients.some(ing => ing.ingredient.toLowerCase().includes(searchTerm)) ||
-            recipe.category.toLowerCase().includes(searchTerm) ||
-            recipe.course.toLowerCase().includes(searchTerm);
+    getFilteredRecipes() {
+        const courseFilterEl = document.getElementById('courseFilter');
+        const categoryFilterEl = document.getElementById('categoryFilter');
+        const searchInputEl = document.getElementById('searchInput');
         
-        return matchesCourse && matchesCategory && matchesSearch;
-    });
-}	
+        const courseFilter = courseFilterEl ? courseFilterEl.value : '';
+        const categoryFilter = categoryFilterEl ? categoryFilterEl.value : '';
+        const searchTerm = searchInputEl ? searchInputEl.value.toLowerCase() : '';
+        
+        return this.recipes.filter(recipe => {
+            const matchesCourse = !courseFilter || recipe.course === courseFilter;
+            const matchesCategory = !categoryFilter || recipe.category === categoryFilter;
+            const matchesSearch = !searchTerm || 
+                recipe.title.toLowerCase().includes(searchTerm) ||
+                recipe.ingredients.some(ing => ing.ingredient.toLowerCase().includes(searchTerm)) ||
+                recipe.category.toLowerCase().includes(searchTerm) ||
+                recipe.course.toLowerCase().includes(searchTerm);
+            
+            return matchesCourse && matchesCategory && matchesSearch;
+        });
+    }	
 
     filterRecipes() {
         this.renderRecipes();
@@ -1454,6 +1599,25 @@ getFilteredRecipes() {
 openRecipeModal(recipeId) {
     const recipe = this.recipes.find(r => r.id === recipeId);
     if (!recipe) return;
+
+    const modal = document.getElementById('recipeModal');
+    
+    // 1. Ensure it's rendered in the DOM first
+    //modal.style.display = 'none';
+    modal.style.display = 'block';
+    modal.style.zIndex = '2000'; // Force it to the absolute top
+    modal.classList.remove('active');
+
+    modal.offsetHeight;
+
+    // 2. Use requestAnimationFrame to ensure the 'display: block' has been 
+    // processed by the browser before starting the slide-in animation
+    requestAnimationFrame(() => {
+        modal.style.transition = '';
+        modal.classList.add('active');
+
+    });   
+
     this.currentRecipe = recipe;
     this.currentScaledServings = recipe.servings;
     
@@ -1507,7 +1671,10 @@ openRecipeModal(recipeId) {
     }
     
     // Show modal
-    document.getElementById('recipeModal').classList.add('active');
+    //document.getElementById('recipeModal').classList.add('active');
+
+    // TRIGGER LOCK HERE
+    this.requestWakeLock();
 }
 
     editRecipe(recipeId) {
@@ -1644,11 +1811,12 @@ saveEditedRecipe(e) {
     this.saveRecipesToServer();
     this.renderRecipes();
     this.updateRecipeCount();
+    this.renderCategoryGrid();
 
     // Close modal
-    document.getElementById('editModal').classList.add('hidden');
+    this.closeModal();
 
-    alert('Recipe updated successfully!');
+    this.showStatus('Recipe updated successfully!', 'success');
 }
 
 
@@ -1807,11 +1975,51 @@ saveEditedRecipe(e) {
         alert('Edit functionality would open a form to modify the current recipe. For this demo, please use the manual entry form to create a new recipe.');
     }
 
-    closeModal() {
-        document.querySelectorAll('.modal').forEach(modal => {
-            modal.classList.add('hidden');
-        });
+/* closeModal() {
+    this.releaseWakeLock();
+
+    const recipeModal = document.getElementById('recipeModal');
+    if (recipeModal) {
+        // 1. Remove the active class immediately
+        recipeModal.classList.remove('active');
+        
+        // 2. Snap it back to 100% instantly by disabling transition
+        recipeModal.style.transition = 'none';
+        
+        // 3. Hide it from the layout engine
+        recipeModal.style.display = 'none';
+        
+        // 4. Force a reflow so the "none" and "translateX(100%)" stick
+        recipeModal.offsetHeight;
+        
+        // 5. Re-enable transitions for the next open event
+        setTimeout(() => {
+            recipeModal.style.transition = '';
+        }, 50);
     }
+
+    // Handle other modals
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+    });
+} */
+
+closeModal() {
+    this.releaseWakeLock();
+
+    const recipeModal = document.getElementById('recipeModal');
+    if (recipeModal) {
+        // Just remove the active class - let CSS handle the animation
+        recipeModal.classList.remove('active');
+    }
+
+    // Handle other modals (edit modal, etc.) - but NOT recipeModal
+    document.querySelectorAll('.modal:not(#recipeModal)').forEach(modal => {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+    });
+}
 
     showStatus(message, type, element = null) {
         if (!element) {
@@ -1852,7 +2060,13 @@ saveEditedRecipe(e) {
     closeShareModal() {
         const modal = document.getElementById('shareModal');
         if (modal) {
-            modal.style.display = 'none';
+            // 1. Remove active/visible class for animation
+            modal.classList.add('hidden');
+            
+            // 2. Clear display after the animation finishes
+            setTimeout(() => {
+                modal.style.display = 'none';
+            }, 250); 
         }
     }
 
