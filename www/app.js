@@ -1676,19 +1676,12 @@ openRecipeModal(recipeId) {
 
     modal.offsetHeight;
 
-    // 2. Use requestAnimationFrame to ensure the 'display: block' has been 
-    // processed by the browser before starting the slide-in animation
-    requestAnimationFrame(() => {
-        modal.style.transition = '';
-        modal.classList.add('active');
-
-    });   
-
-    //set recipe at top
-    modal.scrollTop = 0;
-
     this.currentRecipe = recipe;
     this.currentScaledServings = recipe.servings;
+
+    // Clear any lingering scale-btn active state
+    document.querySelectorAll('.scale-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector('.scale-btn[data-multiplier="1"]').classList.add('active');    
     
     document.getElementById('modalRecipeTitle').textContent = recipe.title;
     document.getElementById('modalRecipeTitle').dataset.recipeId = recipe.id;
@@ -1739,8 +1732,11 @@ openRecipeModal(recipeId) {
         imageEl.style.background = 'linear-gradient(135deg, var(--primary-light) 0%, var(--primary) 100%)';
     }
     
-    // Show modal
-    //document.getElementById('recipeModal').classList.add('active');
+    // Reset scroll and slide in after all content is populated
+    modal.querySelector('.modal-content').scrollTop = 0;
+    requestAnimationFrame(() => {
+        modal.classList.add('active');
+    });
 
     // TRIGGER LOCK HERE
     this.requestWakeLock();
@@ -1896,6 +1892,21 @@ saveEditedRecipe(e) {
         input.value = newValue;
         this.currentScaledServings = newValue;
         this.updateScaledIngredients();
+    });
+
+    // 1x / 2x / 3x scale buttons
+    document.querySelector('.servings-control').addEventListener('click', (e) => {
+        const btn = e.target.closest('.scale-btn');
+        if (!btn || !this.currentRecipe) return;
+
+        const multiplier = parseInt(btn.dataset.multiplier);
+        const newServings = this.currentRecipe.servings * multiplier;
+        this.currentScaledServings = newServings;
+        document.getElementById('currentServings').value = newServings;
+        this.updateScaledIngredients();
+
+        document.querySelectorAll('.scale-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
     });
     
     document.getElementById('decreaseServings').addEventListener('click', () => {

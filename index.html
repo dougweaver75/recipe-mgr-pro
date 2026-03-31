@@ -35,6 +35,13 @@
                         <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
                     </svg>
                 </button>
+                <button id="backupBtn" class="icon-btn" title="Backup Recipes" onclick="recipeManager.exportRecipes()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                </button>
             </div>
         </div>
         
@@ -277,6 +284,11 @@
                             <button id="decreaseServings" class="serving-btn">−</button>
                             <input type="number" id="currentServings" class="serving-input" value="4" min="1">
                             <button id="increaseServings" class="serving-btn">+</button>
+                        </div>
+                        <div class="scale-buttons">
+                            <button class="scale-btn" data-multiplier="1">1x</button>
+                            <button class="scale-btn" data-multiplier="2">2x</button>
+                            <button class="scale-btn" data-multiplier="3">3x</button>
                         </div>
                         <small>Original: <span id="originalServings"></span></small>
                     </div>

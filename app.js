@@ -147,6 +147,12 @@ class RecipeManager {
             fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
         }
 
+        // Export/Backup Handler
+        const exportBtn = document.getElementById('exportBtn');
+        if (exportBtn) {
+            exportBtn.addEventListener('click', () => this.exportRecipes());
+        }
+
         // Import confirmation (only if elements exist)
         const confirmBtn = document.getElementById('confirmImport');
         const cancelBtn = document.getElementById('cancelImport');
@@ -555,6 +561,54 @@ saveRecipesToServer() {
     // For mobile app, just save to localStorage
     localStorage.setItem('recipes', JSON.stringify(this.recipes));
     console.log('Recipes saved to localStorage');
+}
+
+/*exportRecipes() {
+    const dataStr = JSON.stringify(this.recipes, null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+
+    const exportFileDefaultName = 'recipes_backup_' + new Date().toISOString().slice(0,10) + '.json';
+
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+}*/
+
+// Import these if you are using modules, otherwise they are available on the window
+// const { Share } = Capacitor.Plugins;
+// const { Filesystem } = Capacitor.Plugins;
+
+async exportRecipes() {
+    try {
+        const dataStr = JSON.stringify(this.recipes, null, 2);
+        const fileName = 'recipes_backup_' + new Date().toISOString().slice(0, 10) + '.json';
+
+        // 1. Write the file to the app's cache directory (temporary storage)
+        const result = await Capacitor.Plugins.Filesystem.writeFile({
+            path: fileName,
+            data: dataStr,
+            directory: 'CACHE', // Use Directory.Cache if using the object
+            encoding: 'utf8'
+        });
+
+        // 2. Open the native Android Share sheet
+        await Capacitor.Plugins.Share.share({
+            title: 'Backup Recipes',
+            text: 'Here is your recipe backup file.',
+            url: result.uri, // This is the internal file:// path
+            dialogTitle: 'Exporting Recipes'
+        });
+
+    } catch (error) {
+        console.error('Export failed', error);
+        // Fallback for Web Browser testing
+        const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(this.recipes));
+        const linkElement = document.createElement('a');
+        linkElement.setAttribute('href', dataUri);
+        linkElement.setAttribute('download', 'backup.json');
+        linkElement.click();
+    }
 }
 
     setupEventListeners() {
@@ -1061,8 +1115,14 @@ switchTab(tabName) {
             const prepTime = recipe.prepTime || recipe.prep_time || 'Not specified';
             const cookTime = recipe.cookTime || recipe.cook_time || 'Not specified';
             
-            // Extract category
-            const category = recipe.category || recipe.recipeCategory || 'Main Course';
+// 1. Grab the raw category from the imported file
+let rawCategory = recipe.category || recipe.recipeCategory || 'Main Course';
+
+// 2. Force it to match your approved categories (from this.categoryTypes)
+// If the imported category isn't in your list, default to "Casserole" or "Vegetarian"
+const category = this.categoryTypes.includes(rawCategory)
+    ? rawCategory
+    : 'Other';
             
             // Normalize the recipe structure to match our format
             return {
@@ -1600,8 +1660,14 @@ openRecipeModal(recipeId) {
     const recipe = this.recipes.find(r => r.id === recipeId);
     if (!recipe) return;
 
+
+    //stop underscroll
+    document.body.style.overflow = 'hidden';
+
     const modal = document.getElementById('recipeModal');
     
+
+
     // 1. Ensure it's rendered in the DOM first
     //modal.style.display = 'none';
     modal.style.display = 'block';
@@ -1610,16 +1676,12 @@ openRecipeModal(recipeId) {
 
     modal.offsetHeight;
 
-    // 2. Use requestAnimationFrame to ensure the 'display: block' has been 
-    // processed by the browser before starting the slide-in animation
-    requestAnimationFrame(() => {
-        modal.style.transition = '';
-        modal.classList.add('active');
-
-    });   
-
     this.currentRecipe = recipe;
     this.currentScaledServings = recipe.servings;
+
+    // Clear any lingering scale-btn active state
+    document.querySelectorAll('.scale-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector('.scale-btn[data-multiplier="1"]').classList.add('active');    
     
     document.getElementById('modalRecipeTitle').textContent = recipe.title;
     document.getElementById('modalRecipeTitle').dataset.recipeId = recipe.id;
@@ -1670,8 +1732,11 @@ openRecipeModal(recipeId) {
         imageEl.style.background = 'linear-gradient(135deg, var(--primary-light) 0%, var(--primary) 100%)';
     }
     
-    // Show modal
-    //document.getElementById('recipeModal').classList.add('active');
+    // Reset scroll and slide in after all content is populated
+    modal.querySelector('.modal-content').scrollTop = 0;
+    requestAnimationFrame(() => {
+        modal.classList.add('active');
+    });
 
     // TRIGGER LOCK HERE
     this.requestWakeLock();
@@ -1827,6 +1892,21 @@ saveEditedRecipe(e) {
         input.value = newValue;
         this.currentScaledServings = newValue;
         this.updateScaledIngredients();
+    });
+
+    // 1x / 2x / 3x scale buttons
+    document.querySelector('.servings-control').addEventListener('click', (e) => {
+        const btn = e.target.closest('.scale-btn');
+        if (!btn || !this.currentRecipe) return;
+
+        const multiplier = parseInt(btn.dataset.multiplier);
+        const newServings = this.currentRecipe.servings * multiplier;
+        this.currentScaledServings = newServings;
+        document.getElementById('currentServings').value = newServings;
+        this.updateScaledIngredients();
+
+        document.querySelectorAll('.scale-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
     });
     
     document.getElementById('decreaseServings').addEventListener('click', () => {
@@ -2007,6 +2087,9 @@ saveEditedRecipe(e) {
 
 closeModal() {
     this.releaseWakeLock();
+
+    //relesase scrolling
+    document.body.style.overflow = '';  
 
     const recipeModal = document.getElementById('recipeModal');
     if (recipeModal) {
