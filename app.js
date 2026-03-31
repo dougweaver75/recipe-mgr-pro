@@ -65,12 +65,6 @@ class RecipeManager {
         }
     }
 
-    init() {
-        this.setupEventListeners();
-        this.setupTabs();
-        this.loadRecipesFromServer();
-    }
-	
     initRedesign() {
         this.initTheme();
         this.initBottomNav();
@@ -320,6 +314,15 @@ updateStatusBarStyle(theme) {
         });
     }
 
+    escapeHtml(str) {
+        if (str == null) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
     renderSearchResults(recipes) {
         const searchResults = document.getElementById('searchResults');
 
@@ -330,9 +333,9 @@ updateStatusBarStyle(theme) {
 
         searchResults.innerHTML = recipes.map(recipe => `
             <div class="search-result-item" onclick="recipeManager.openRecipeModal(${recipe.id})">
-                <div style="font-weight: 600; margin-bottom: 0.25rem;">${recipe.title}</div>
+                <div style="font-weight: 600; margin-bottom: 0.25rem;">${this.escapeHtml(recipe.title)}</div>
                 <div style="font-size: 0.875rem; color: var(--text-secondary);">
-                    ${recipe.course} • ${recipe.category}
+                    ${this.escapeHtml(recipe.course)} • ${this.escapeHtml(recipe.category)}
                 </div>
             </div>
         `).join('');
@@ -610,75 +613,6 @@ async exportRecipes() {
         linkElement.click();
     }
 }
-
-    setupEventListeners() {
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => this.switchTab(e.target.dataset.tab));
-        });
-
-        document.querySelectorAll('.add-tab-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => this.switchAddTab(e.target.dataset.addTab));
-        });
-
-        document.getElementById('searchInput').addEventListener('input', (e) => this.filterRecipes());
-        document.getElementById('courseFilter').addEventListener('change', (e) => this.filterRecipes());
-        document.getElementById('categoryFilter').addEventListener('change', (e) => this.filterRecipes());
-        document.getElementById('sortBy').addEventListener('change', (e) => this.filterRecipes());
-
-        document.getElementById('manualRecipeForm').addEventListener('submit', (e) => this.saveManualRecipe(e));
-        document.getElementById('addIngredient').addEventListener('click', () => this.addIngredientRow());
-
-        document.getElementById('scrapeUrl').addEventListener('click', () => this.scrapeRecipeFromUrl());
-
-        const fileUploadArea = document.getElementById('fileUploadArea');
-        const fileInput = document.getElementById('fileInput');
-        
-        fileUploadArea.addEventListener('click', () => fileInput.click());
-        fileUploadArea.addEventListener('dragover', (e) => this.handleDragOver(e));
-        fileUploadArea.addEventListener('drop', (e) => this.handleFileDrop(e));
-        fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
-
-        document.getElementById('confirmImport').addEventListener('click', () => this.confirmImport());
-        document.getElementById('cancelImport').addEventListener('click', () => this.cancelImport());
-
-        document.querySelectorAll('.modal-close').forEach(btn => {
-            btn.addEventListener('click', () => this.closeModal());
-        });
-
-        document.getElementById('editRecipeBtn').addEventListener('click', () => {
-            const recipeId = parseInt(document.getElementById('modalRecipeTitle').dataset.recipeId);
-            this.editRecipe(recipeId);
-        });
-        document.getElementById('printRecipeBtn').addEventListener('click', () => window.print());
-
-        document.getElementById('decreaseServings').addEventListener('click', () => this.adjustServings(-1));
-        document.getElementById('increaseServings').addEventListener('click', () => this.adjustServings(1));
-        document.getElementById('currentServings').addEventListener('input', (e) => this.setServings(parseInt(e.target.value)));
-		
-		// Add this somewhere in your initialization
-	/*	document.getElementById('modalBackBtn').addEventListener('click', () => {
-			document.getElementById('recipeModal').classList.remove('active');
-		});		
-
-        document.querySelectorAll('.modal').forEach(modal => {
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) this.closeModal();
-            });
-        });*/
-    }
-
-    setupTabs() {
-        this.switchTab('library');
-        this.switchAddTab('manual');
-    }
-
-    switchTab(tabName) {
-        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-        
-        document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
-        document.getElementById(tabName).classList.add('active');
-    }
 
 switchTab(tabName) {
     // Old tab system - check if elements exist first
@@ -1486,9 +1420,9 @@ const category = this.categoryTypes.includes(rawCategory)
         
         contentEl.innerHTML = recipes.map(recipe => `
             <div class="preview-recipe">
-                <h5>${recipe.title}</h5>
+                <h5>${this.escapeHtml(recipe.title)}</h5>
                 <div class="preview-preview-meta">
-                    ${recipe.course} • ${recipe.category} • ${recipe.servings} servings • ${recipe.ingredients.length} ingredients
+                    ${this.escapeHtml(recipe.course)} • ${this.escapeHtml(recipe.category)} • ${recipe.servings} servings • ${recipe.ingredients.length} ingredients
                     ${recipe.nutrition.calories ? `• ${recipe.nutrition.calories} cal` : ''}
                 </div>
             </div>
@@ -1577,16 +1511,16 @@ const category = this.categoryTypes.includes(rawCategory)
 
 			return `
 				<div class="recipe-card" onclick="recipeManager.openRecipeModal(${recipe.id})">
-					${imageUrl ? 
-						`<img src="${imageUrl}" alt="${recipe.title}" class="recipe-card-image">` :
+					${imageUrl ?
+						`<img src="${imageUrl}" alt="${this.escapeHtml(recipe.title)}" class="recipe-card-image">` :
 						`<div class="recipe-card-image" style="background: linear-gradient(135deg, var(--primary-light) 0%, var(--primary) 100%); display: flex; align-items: center; justify-content: center; color: white; font-size: 2rem;">🍽️</div>`
 					}
 					<div class="recipe-card-content">
 						<div>
-							<h3 class="recipe-card-title">${recipe.title}</h3>
+							<h3 class="recipe-card-title">${this.escapeHtml(recipe.title)}</h3>
 							<div class="recipe-card-tags">
-								<span class="recipe-tag">${recipe.course}</span>
-								<span class="recipe-tag">${recipe.category}</span>
+								<span class="recipe-tag">${this.escapeHtml(recipe.course)}</span>
+								<span class="recipe-tag">${this.escapeHtml(recipe.category)}</span>
 							</div>
 						</div>
 						<div class="recipe-card-meta">
@@ -1759,7 +1693,7 @@ openRecipeModal(recipeId) {
         <div class="form-row">
             <div class="form-group">
                 <label class="form-label">Recipe Title</label>
-                <input type="text" id="editRecipeTitle" class="form-control" value="${recipe.title}" required>
+                <input type="text" id="editRecipeTitle" class="form-control" value="${this.escapeHtml(recipe.title)}" required>
             </div>
             <div class="form-group">
                 <label class="form-label">Course</label>
@@ -1771,7 +1705,7 @@ openRecipeModal(recipeId) {
             </div>
             <div class="form-group">
                 <label class="form-label">Category</label>
-                <input type="text" id="editRecipeCategory" class="form-control" value="${recipe.category}" required>
+                <input type="text" id="editRecipeCategory" class="form-control" value="${this.escapeHtml(recipe.category)}" required>
             </div>
         </div>
 
@@ -2386,27 +2320,3 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-this.recipes.push(mockRecipe);
-console.log('Recipe added! Total recipes:', this.recipes.length);
-this.saveRecipesToServer();
-console.log('Recipes saved to localStorage');
-this.renderRecipes();
-console.log('Recipes rendered');
-
-document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(() => {
-        console.log('Recipes loaded:', recipeManager.recipes.length);
-        
-        // Force render category grid
-        if (typeof recipeManager.renderCategoryGrid === 'function') {
-            recipeManager.renderCategoryGrid();
-        } else {
-            console.error('renderCategoryGrid not defined!');
-        }
-        
-        // Also render recipes list
-        if (typeof recipeManager.renderRecipes === 'function') {
-            recipeManager.renderRecipes();
-        }
-    }, 1000);
-});
