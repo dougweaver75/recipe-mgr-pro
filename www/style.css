@@ -181,6 +181,15 @@ body {
     box-shadow: var(--shadow-lg);
 }
 
+/* Fix for oversized imported images */
+.recipe-card img, .recipe-details img {
+    max-width: 100%;
+    height: auto;
+    max-height: 350px; /* Adjust based on your preference */
+    object-fit: cover;
+    border-radius: 12px;
+}
+
 .category-image {
     width: 100%;
     height: 140px;
